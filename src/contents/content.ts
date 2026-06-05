@@ -1,6 +1,7 @@
 import type { PlasmoCSConfig } from "plasmo"
 
 import { handleFeedApiResponse } from "~features/xiaohongshu/collectors/feed-cache"
+import { handlePageNotesApiResponse } from "~features/xiaohongshu/collectors/page-notes-cache"
 import type {
   ApiInterceptPayload,
   ExecuteRequestDetail,
@@ -56,6 +57,7 @@ export function onApiResponse(listener: (payload: ApiInterceptPayload) => void) 
 
 function dispatchApiResponse(payload: ApiInterceptPayload) {
   handleFeedApiResponse(payload)
+  handlePageNotesApiResponse(payload)
   for (const listener of responseListeners) {
     listener(payload)
   }

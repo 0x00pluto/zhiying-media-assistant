@@ -190,7 +190,7 @@ async function standardRequest(config: HttpRequestConfig): Promise<HttpResponse>
   }
 
   const body = data as { code?: number; msg?: string }
-  if (body?.code && body.code !== 1000 && body.code !== 0) {
+  if (body?.code && body.code > 0 && body.code !== 1000) {
     return {
       status: response.status,
       statusText: response.statusText,

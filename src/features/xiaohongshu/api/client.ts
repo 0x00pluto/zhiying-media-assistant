@@ -17,9 +17,25 @@ async function xhsRequest<T = unknown>(config: HttpRequestConfig): Promise<T> {
     throw new Error(response.error)
   }
 
-  const body = response.data as { code?: number; data?: T; msg?: string }
-  if (body && typeof body === "object" && "data" in body) {
-    return body.data as T
+  const body = response.data as {
+    code?: number
+    success?: boolean
+    data?: T
+    msg?: string
+  }
+
+  if (body && typeof body === "object") {
+    const code = body.code
+    // 正数错误码（如 300011 风控）视为业务失败；-1 等负数部分接口仍带可用 data
+    if (code !== undefined && code > 0 && code !== 1000) {
+      throw new Error(body.msg || `接口请求失败（${code}）`)
+    }
+    if (body.success === false && body.msg && (code === undefined || code >= 0)) {
+      throw new Error(body.msg)
+    }
+    if ("data" in body) {
+      return body.data as T
+    }
   }
 
   return response.data as T

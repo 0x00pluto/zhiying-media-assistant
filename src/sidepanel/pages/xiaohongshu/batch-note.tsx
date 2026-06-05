@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react"
 
 import { NOTE_COLUMNS } from "~features/xiaohongshu/columns/note"
+import type { NoteCollector } from "~features/xiaohongshu/collectors/note"
+import {
+  NOTE_BATCH_COLLECT_DISABLED_HINT,
+  useNoteBatchCollectEnabled
+} from "~features/xiaohongshu/use-note-batch-enabled"
 import { FeishuSyncPanel } from "~sidepanel/components/feishu-sync-panel"
-import { clearTask, getCurrentTask, runTask } from "~sidepanel/store/task"
+import { openExtensionOptions } from "~shared/messaging"
+import { getCurrentTask, runTask } from "~sidepanel/store/task"
 import { copyToClipboard, exportCsv } from "~sidepanel/utils/export"
 import { TaskStatus } from "~shared/task-runner"
 
@@ -10,7 +16,26 @@ type Props = {
   initialState?: Record<string, unknown>
 }
 
+function parseLinkLines(text: string) {
+  return text
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+function resolveInitialLimit(initialState?: Record<string, unknown>) {
+  const collectBy = (initialState?.collectBy as string) || "keyword"
+  const urlList = (initialState?.urls as string[]) || []
+
+  if (collectBy === "links" && urlList.length) {
+    return Number(initialState?.limit) || urlList.length
+  }
+
+  return Number(initialState?.limit) || 200
+}
+
 export function BatchNotePage({ initialState }: Props) {
+  const { enabled: noteBatchEnabled } = useNoteBatchCollectEnabled()
   const [collectBy, setCollectBy] = useState(
     (initialState?.collectBy as string) || "keyword"
   )
@@ -18,39 +43,70 @@ export function BatchNotePage({ initialState }: Props) {
   const [links, setLinks] = useState(
     ((initialState?.urls as string[]) || []).join("\n")
   )
-  const [limit, setLimit] = useState(Number(initialState?.limit) || 200)
+  const [limit, setLimit] = useState(resolveInitialLimit(initialState))
   const [running, setRunning] = useState(false)
   const [status, setStatus] = useState(TaskStatus.INITIAL)
   const [progress, setProgress] = useState({ completed: 0, total: 0 })
+  const [records, setRecords] = useState<Record<string, unknown>[]>([])
   const [error, setError] = useState("")
+  const [warning, setWarning] = useState("")
 
   useEffect(() => {
     if (initialState) {
       setCollectBy((initialState.collectBy as string) || "keyword")
       setKeyword((initialState.keyword as string) || "")
       setLinks(((initialState.urls as string[]) || []).join("\n"))
-      setLimit(Number(initialState.limit) || 200)
+      setLimit(resolveInitialLimit(initialState))
     }
   }, [initialState])
 
+  const handleLinksChange = (text: string) => {
+    setLinks(text)
+    if (collectBy === "links") {
+      const count = parseLinkLines(text).length
+      if (count > 0) setLimit(count)
+    }
+  }
+
   const startTask = async () => {
+    if (!noteBatchEnabled) {
+      setWarning(NOTE_BATCH_COLLECT_DISABLED_HINT)
+      return
+    }
+
     setError("")
+    setWarning("")
     setRunning(true)
+
+    const urlList = parseLinkLines(links)
+    const effectiveLimit =
+      collectBy === "links"
+        ? Math.min(Math.max(limit, 1), urlList.length || limit)
+        : limit
 
     const condition: Record<string, unknown> = {
       name: (initialState?.name as string) || "笔记批量采集",
       collectBy,
-      limit,
+      limit: effectiveLimit,
       note_type: initialState?.note_type ?? 0,
       sort: initialState?.sort || "general"
     }
 
     if (collectBy === "keyword") {
       condition.keyword = keyword
-    } else {
-      condition.urls = links.split("\n").map((s) => s.trim()).filter(Boolean)
+    } else if (collectBy === "links") {
+      condition.urls = urlList.slice(0, effectiveLimit)
+      const pageNotes = initialState?.pageNotes as
+        | Array<{ id: string; url: string; noteCard?: Record<string, unknown> }>
+        | undefined
+      if (pageNotes?.length) {
+        const urlSet = new Set(condition.urls as string[])
+        condition.pageNotes = pageNotes.filter((note) => urlSet.has(note.url))
+      }
+    } else if (collectBy !== "homefeed") {
+      condition.urls = urlList
       if (collectBy === "author-links" || collectBy === "board-links") {
-        condition.limitPerId = limit
+        condition.limitPerId = effectiveLimit
       }
     }
 
@@ -66,6 +122,7 @@ export function BatchNotePage({ initialState }: Props) {
             total: current.getTotal()
           })
           setStatus(current.status)
+          setRecords([...current.records])
         }
       }, 500)
 
@@ -76,6 +133,20 @@ export function BatchNotePage({ initialState }: Props) {
         completed: task.getCompleted(),
         total: task.getTotal()
       })
+      setRecords([...task.records])
+
+      const feedWarnings = (task as NoteCollector).warnings || []
+      if (feedWarnings.length) {
+        setWarning(feedWarnings.join("；"))
+      } else if (task.getCompleted() === 0 && task.getTotal() > 0) {
+        setWarning(
+          "未采集到任何笔记，请保持小红书页面打开并刷新后重试"
+        )
+      } else if (task.getCompleted() < task.getTotal()) {
+        setWarning(
+          `部分链接未能获取详情（${task.getCompleted()}/${task.getTotal()}），已写入可采集的基础字段`
+        )
+      }
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -83,12 +154,42 @@ export function BatchNotePage({ initialState }: Props) {
     }
   }
 
-  const task = getCurrentTask()
-  const records = task?.records || []
+  const linkCount = parseLinkLines(links).length
 
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>批量采集笔记</h2>
+
+      {!noteBatchEnabled && (
+        <p
+          style={{
+            margin: "0 0 16px",
+            padding: "12px 14px",
+            borderRadius: 8,
+            background: "#fff7ed",
+            border: "1px solid #fed7aa",
+            color: "#9a3412",
+            fontSize: 13,
+            lineHeight: 1.6
+          }}>
+          {NOTE_BATCH_COLLECT_DISABLED_HINT}{" "}
+          <button
+            type="button"
+            onClick={() => void openExtensionOptions("collect")}
+            style={{
+              marginLeft: 4,
+              padding: 0,
+              border: "none",
+              background: "transparent",
+              color: "#c2410c",
+              textDecoration: "underline",
+              cursor: "pointer",
+              fontSize: 13
+            }}>
+            去设置开启
+          </button>
+        </p>
+      )}
 
       <label style={labelStyle}>
         采集方式
@@ -118,7 +219,7 @@ export function BatchNotePage({ initialState }: Props) {
           链接（每行一条）
           <textarea
             value={links}
-            onChange={(e) => setLinks(e.target.value)}
+            onChange={(e) => handleLinksChange(e.target.value)}
             rows={6}
             style={inputStyle}
           />
@@ -126,9 +227,11 @@ export function BatchNotePage({ initialState }: Props) {
       ) : null}
 
       <label style={labelStyle}>
-        数量上限
+        {collectBy === "links" ? "采集条数（不超过链接数）" : "数量上限"}
         <input
           type="number"
+          min={1}
+          max={collectBy === "links" && linkCount ? linkCount : undefined}
           value={limit}
           onChange={(e) => setLimit(Number(e.target.value))}
           style={inputStyle}
@@ -136,7 +239,15 @@ export function BatchNotePage({ initialState }: Props) {
       </label>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        <button type="button" onClick={startTask} disabled={running} style={primaryBtn}>
+        <button
+          type="button"
+          onClick={startTask}
+          disabled={running || !noteBatchEnabled}
+          style={{
+            ...primaryBtn,
+            opacity: noteBatchEnabled ? 1 : 0.5,
+            cursor: noteBatchEnabled ? "pointer" : "not-allowed"
+          }}>
           {running ? "采集中..." : "开始采集"}
         </button>
         <button
@@ -156,6 +267,7 @@ export function BatchNotePage({ initialState }: Props) {
       </div>
 
       {error && <p style={{ color: "#dc2626" }}>{error}</p>}
+      {warning && <p style={{ color: "#d97706", fontSize: 13 }}>{warning}</p>}
       <p style={{ color: "#6b7280", fontSize: 13 }}>
         状态: {status} · 进度 {progress.completed}/{progress.total}
       </p>

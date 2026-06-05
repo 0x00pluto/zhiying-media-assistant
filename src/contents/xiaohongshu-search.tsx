@@ -1,71 +1,114 @@
 import type { PlasmoCSConfig, PlasmoGetInlineAnchor } from "plasmo"
+import { App, ConfigProvider } from "antd"
 import { useEffect, useState } from "react"
 
-import { CsuiCollectButton } from "~features/xiaohongshu/ui/csui-button"
+import { SearchPageToolbar } from "~features/xiaohongshu/ui/search-page-toolbar"
+import { parseSearchKeyword } from "~features/xiaohongshu/utils/parse-search-keyword"
 
 export const config: PlasmoCSConfig = {
   matches: [
     "*://www.xiaohongshu.com/search_result*",
     "*://www.rednote.com/search_result*"
-  ]
+  ],
+  run_at: "document_idle"
 }
 
-export const getInlineAnchor: PlasmoGetInlineAnchor = async () =>
-  document.querySelector("div.feeds-page") ||
-  document.querySelector("div.ai-feeds-page") ||
-  document.body
+const SEARCH_ANCHOR_SELECTORS = [
+  "div.ai-feeds-page",
+  "div.feeds-page",
+  ".search-layout .content-container",
+  ".content-container",
+  ".search-layout"
+]
+
+async function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function findSearchAnchor() {
+  for (let i = 0; i < 40; i++) {
+    for (const selector of SEARCH_ANCHOR_SELECTORS) {
+      const element = document.querySelector(selector)
+      if (element) return element
+    }
+    await wait(250)
+  }
+  return null
+}
+
+export const getInlineAnchor: PlasmoGetInlineAnchor = async () => {
+  const element = (await findSearchAnchor()) || document.body
+
+  return {
+    element,
+    insertPosition: "afterbegin"
+  }
+}
 
 function SearchPageCsui() {
-  const [keyword, setKeyword] = useState("")
+  const [keyword, setKeyword] = useState(() => parseSearchKeyword())
   const [tab, setTab] = useState("all")
 
   useEffect(() => {
-    const params = new URL(location.href).searchParams
-    const kw = params.get("keyword")
-    if (kw) setKeyword(decodeURIComponent(kw))
+    setKeyword(parseSearchKeyword())
 
-    const tabs = document.querySelectorAll(".content-container>div[id]")
+    const syncTab = () => {
+      const active = document.querySelector(
+        ".content-container > div.active[id], .content-container > div[id].active"
+      ) as HTMLElement | null
+      if (active?.id) {
+        setTab(active.id)
+        return
+      }
+
+      const tabs = document.querySelectorAll(".content-container > div[id]")
+      tabs.forEach((el) => {
+        if (el.classList.contains("active")) {
+          setTab(el.id)
+        }
+      })
+    }
+
+    syncTab()
+
+    const tabs = document.querySelectorAll(".content-container > div[id]")
     const onClick = (event: Event) => {
       const target = event.target as HTMLElement
       const id = target.id || target.parentElement?.id
       if (id) setTab(id)
     }
     tabs.forEach((el) => el.addEventListener("click", onClick))
-    return () => tabs.forEach((el) => el.removeEventListener("click", onClick))
+
+    const observer = new MutationObserver(syncTab)
+    const container = document.querySelector(".content-container")
+    if (container) {
+      observer.observe(container, {
+        attributes: true,
+        subtree: true,
+        attributeFilter: ["class"]
+      })
+    }
+
+    return () => {
+      tabs.forEach((el) => el.removeEventListener("click", onClick))
+      observer.disconnect()
+    }
   }, [])
 
   if (!keyword) return null
 
-  if (tab === "user") {
-    return (
-      <CsuiCollectButton
-        label="批量采集博主"
-        to="/xiaohongshu/batch-collect/blogger"
-        state={{
-          name: `关键词「${keyword}」的博主数据`,
-          collectBy: "keyword",
-          keyword,
-          limit: 300
-        }}
-      />
-    )
-  }
-
-  const noteType = tab === "image" ? 2 : tab === "video" ? 1 : 0
-
   return (
-    <CsuiCollectButton
-      label="批量采集笔记"
-      to="/xiaohongshu/batch-collect/note"
-      state={{
-        collectBy: "keyword",
-        name: `关键词「${keyword}」的笔记数据`,
-        keyword,
-        limit: 200,
-        note_type: noteType,
-        sort: "general"
-      }}
-    />
+    <ConfigProvider
+      theme={{
+        token: {
+          colorPrimary: "#ff2442",
+          borderRadius: 8
+        }
+      }}>
+      <App>
+        <SearchPageToolbar keyword={keyword} tab={tab} />
+      </App>
+    </ConfigProvider>
   )
 }
 

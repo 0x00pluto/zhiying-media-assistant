@@ -254,18 +254,25 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
     const rootCommentId = String(rootComment.id)
 
     while (this.getCurrCompleted(noteId) < (this.condition.limitPerId || 100)) {
-      const result = (await fetchSubComments({
-        note_id: noteId,
-        root_comment_id: rootCommentId,
-        num: 10,
-        cursor,
-        top_comment_id: "",
-        image_formats: "jpg,webp,avif",
-        xsec_token: token
-      })) as {
+      let result: {
         comments?: Array<Record<string, unknown>>
         cursor?: string
         has_more?: boolean
+      }
+
+      try {
+        result = (await fetchSubComments({
+          note_id: noteId,
+          root_comment_id: rootCommentId,
+          num: 10,
+          cursor,
+          top_comment_id: "",
+          image_formats: "jpg,webp,avif",
+          xsec_token: token
+        })) as typeof result
+      } catch (error) {
+        console.warn("fetch sub comments page failed", rootCommentId, error)
+        break
       }
 
       const comments = result.comments || []
@@ -322,7 +329,11 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
         })
 
         if (this.condition.includeSub) {
-          await this.collectSubComments(pageUrl, note.id, comment, note.token)
+          try {
+            await this.collectSubComments(pageUrl, note.id, comment, note.token)
+          } catch (error) {
+            console.warn("fetch sub comments failed", comment.id, error)
+          }
         }
       }
 

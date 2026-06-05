@@ -1,5 +1,9 @@
 import { Card } from "antd"
 
+import {
+  NOTE_BATCH_COLLECT_DISABLED_HINT,
+  useNoteBatchCollectEnabled
+} from "~features/xiaohongshu/use-note-batch-enabled"
 import { MenuItem } from "~sidepanel/components/menu-item"
 
 type Props = {
@@ -7,6 +11,8 @@ type Props = {
 }
 
 export function XiaohongshuHome({ onNavigate }: Props) {
+  const { enabled: noteBatchEnabled } = useNoteBatchCollectEnabled()
+
   return (
     <div>
       <Card className="sidepanel-card" title="批量采集" bordered={false}>
@@ -15,11 +21,26 @@ export function XiaohongshuHome({ onNavigate }: Props) {
           label="采集博主数据"
           onClick={() => onNavigate("/xiaohongshu/batch-collect/blogger")}
         />
-        <MenuItem
-          icon={<span>N</span>}
-          label="采集笔记数据"
-          onClick={() => onNavigate("/xiaohongshu/batch-collect/note")}
-        />
+        {noteBatchEnabled ? (
+          <MenuItem
+            icon={<span>N</span>}
+            label="采集笔记数据"
+            onClick={() => onNavigate("/xiaohongshu/batch-collect/note")}
+          />
+        ) : (
+          <p
+            style={{
+              margin: "8px 0 0",
+              padding: "10px 12px",
+              borderRadius: 8,
+              background: "#f9fafb",
+              color: "#6b7280",
+              fontSize: 12,
+              lineHeight: 1.5
+            }}>
+            采集笔记数据（暂不可用）：{NOTE_BATCH_COLLECT_DISABLED_HINT}
+          </p>
+        )}
         <MenuItem
           icon={<span>C</span>}
           label="采集评论数据"

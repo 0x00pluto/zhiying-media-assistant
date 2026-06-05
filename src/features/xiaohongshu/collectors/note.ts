@@ -16,12 +16,19 @@ import { NOTE_COLUMNS } from "~features/xiaohongshu/columns/note"
 import { TaskRunner } from "~shared/task-runner"
 import type { XhsApiType } from "~shared/columns/types"
 
+export type PageNoteSeed = {
+  id: string
+  url: string
+  noteCard?: Record<string, unknown>
+}
+
 export type NoteCollectCondition = {
   name?: string
   collectBy: "keyword" | "links" | "author-links" | "board-links" | "homefeed"
   keyword?: string
   keywords?: string[]
   urls?: string[]
+  pageNotes?: PageNoteSeed[]
   limit?: number
   limitPerId?: number
   note_type?: number
@@ -38,9 +45,41 @@ type AddRecordInput = {
   keyword?: string
 }
 
+function normalizeNoteCard(
+  noteCard: Record<string, unknown> | undefined,
+  noteId: string
+) {
+  if (!noteCard || Object.keys(noteCard).length === 0) return undefined
+
+  return {
+    ...noteCard,
+    note_id: noteCard.note_id || noteCard.id || noteId,
+    title: noteCard.title || noteCard.display_title
+  }
+}
+
+/** 对齐社媒助手 JR：items[0].note_card */
+function extractNoteCardFromFeed(feed: unknown) {
+  const payload = feed as { items?: Array<Record<string, unknown>> }
+  const item = payload.items?.[0]
+  if (!item) return undefined
+
+  return (item.note_card || item.noteCard) as Record<string, unknown> | undefined
+}
+
 export class NoteCollector extends TaskRunner<NoteCollectCondition> {
   readonly type = "note"
   readonly allColumns = NOTE_COLUMNS
+  /** 对齐社媒助手 apiWrapper 间隔：每条 1~3s */
+  interval = { min: 1, max: 3 }
+  warnings: string[] = []
+
+  private recordWarning(error: unknown) {
+    const msg = (error as Error).message?.trim()
+    if (msg && !this.warnings.includes(msg)) {
+      this.warnings.push(msg)
+    }
+  }
 
   getTotal() {
     const c = this.condition
@@ -48,7 +87,9 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
       return (c.limit || 200) * (c.keywords?.length || 1)
     }
     if (c.collectBy === "links") {
-      return c.urls?.length || 0
+      const total = c.urls?.length || 0
+      const max = c.limit ?? total
+      return total ? Math.min(total, max) : 0
     }
     if (c.collectBy === "homefeed") {
       return c.limit || 200
@@ -57,6 +98,7 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
   }
 
   async execute() {
+    this.warnings = []
     const c = this.condition
     if (c.collectBy === "keyword") {
       const keywords = c.keywords || (c.keyword ? [c.keyword] : [])
@@ -72,6 +114,22 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
     } else if (c.collectBy === "homefeed") {
       await this.collectByHomefeed(c.limit || 200)
     }
+  }
+
+  /** 对齐社媒助手 JR：仅用链接解析出的 token/source，单次 feed 请求 */
+  private async fetchNoteCardByUrl(url: string, noteId?: string) {
+    const parsed = parseNoteUrl(url)
+    const id = noteId || parsed.id
+
+    const feed = await fetchNoteFeed({
+      source_note_id: id,
+      image_formats: ["jpg", "webp", "avif"],
+      extra: { need_body_topic: "1" },
+      xsec_source: parsed.source,
+      xsec_token: parsed.token
+    })
+
+    return normalizeNoteCard(extractNoteCardFromFeed(feed), id)
   }
 
   private async addRecord(input: AddRecordInput) {
@@ -94,10 +152,7 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
       }
     }
 
-    this.fillRecord(
-      { ...input, pageUrl: input.noteUrl },
-      record
-    )
+    this.fillRecord({ ...input, pageUrl: input.noteUrl }, record)
 
     if (input.userUrl) {
       try {
@@ -120,18 +175,10 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
       }
     }
 
+    // 对齐社媒助手 addRecord：有 noteUrl 时再拉一次 feed（overwrite）
     if (input.noteUrl) {
       try {
-        const note = parseNoteUrl(input.noteUrl)
-        const feed = (await fetchNoteFeed({
-          source_note_id: input.uniqueId || note.id,
-          image_formats: ["jpg", "webp", "avif"],
-          extra: { need_body_topic: "1" },
-          xsec_source: note.source,
-          xsec_token: note.token
-        })) as { items?: Array<{ note_card?: Record<string, unknown> }> }
-
-        const noteCard = feed.items?.[0]?.note_card
+        const noteCard = await this.fetchNoteCardByUrl(input.noteUrl, input.uniqueId)
         if (noteCard) {
           this.fillRecord(
             {
@@ -146,6 +193,7 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
         }
       } catch (error) {
         console.warn("fetch feed failed", error)
+        this.recordWarning(error)
       }
     }
 
@@ -196,18 +244,40 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
 
       page++
       if (!result.has_more) break
-      await sleep()
+      await sleep(this.interval.min, this.interval.max)
     }
   }
 
+  /** 对齐社媒助手 YR：每条链接 JR 一次 → addRecord（内部再 feed 一次） */
   private async collectByLinks(urls: string[]) {
-    for (const url of urls) {
-      const note = parseNoteUrl(url)
+    const limit = this.condition.limit ?? urls.length
+    const host =
+      typeof location !== "undefined" ? location.hostname : "www.xiaohongshu.com"
+
+    for (const url of urls.slice(0, limit)) {
+      let noteCard: Record<string, unknown> = {}
+
+      try {
+        const fetched = await this.fetchNoteCardByUrl(url)
+        if (fetched) noteCard = fetched
+      } catch (error) {
+        console.warn("fetch feed failed", url, error)
+        this.recordWarning(error)
+      }
+
+      const parsed = parseNoteUrl(url)
+      const user = noteCard.user as Record<string, unknown> | undefined
+      const noteId = String(noteCard.note_id || noteCard.id || parsed.id)
+      const userUrl = user?.user_id
+        ? `https://${host}/user/profile/${user.user_id}?xsec_token=${user.xsec_token}&xsec_source=pc_feed`
+        : undefined
+
       await this.addRecord({
-        data: { note_id: note.id, xsec_token: note.token },
-        api: "user_posted",
-        uniqueId: note.id,
-        noteUrl: url
+        data: noteCard,
+        api: "feed",
+        uniqueId: noteId,
+        noteUrl: url,
+        userUrl
       })
     }
   }
@@ -246,7 +316,7 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
 
         if (!result.has_more || !result.cursor) break
         cursor = result.cursor
-        await sleep()
+        await sleep(this.interval.min, this.interval.max)
       }
     }
   }
@@ -282,7 +352,7 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
 
         page++
         if (!result.has_more) break
-        await sleep()
+        await sleep(this.interval.min, this.interval.max)
       }
     }
   }
@@ -317,7 +387,7 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
 
       if (!result.cursor_score) break
       cursor = result.cursor_score
-      await sleep()
+      await sleep(this.interval.min, this.interval.max)
     }
   }
 }

@@ -5,6 +5,7 @@ import {
   feishuSyncConfigStorage,
   xiaohongshuFieldConfigStorage
 } from "~features/feishu/storage"
+import { xiaohongshuCollectConfigStorage } from "~features/xiaohongshu/storage"
 
 import iconUrl from "url:~/assets/icon.png"
 
@@ -12,6 +13,7 @@ import { getExtensionName } from "~shared/extension-title"
 
 const menuItems = [
   { key: "feishu", label: "飞书同步" },
+  { key: "collect", label: "采集设置" },
   { key: "fields", label: "小红书字段" }
 ] as const
 
@@ -20,6 +22,7 @@ type MenuKey = (typeof menuItems)[number]["key"]
 function resolveMenuFromHash(): MenuKey {
   const hash = window.location.hash.replace(/^#\/?/, "")
   if (hash === "sync-feishu" || hash === "feishu") return "feishu"
+  if (hash === "collect") return "collect"
   if (hash === "fields") return "fields"
   return "feishu"
 }
@@ -34,6 +37,7 @@ function OptionsPage() {
   const [maxConcurrentUploads, setMaxConcurrentUploads] = useState(5)
   const [maxFileSize, setMaxFileSize] = useState(20)
   const [removeContentTags, setRemoveContentTags] = useState(false)
+  const [noteBatchEnabled, setNoteBatchEnabled] = useState(false)
   const [saved, setSaved] = useState("")
 
   useEffect(() => {
@@ -58,6 +62,9 @@ function OptionsPage() {
     xiaohongshuFieldConfigStorage.get().then((config) => {
       setRemoveContentTags(Boolean(config.note?.removeContentTags))
     })
+    xiaohongshuCollectConfigStorage.get().then((config) => {
+      setNoteBatchEnabled(Boolean(config.noteBatchEnabled))
+    })
   }, [])
 
   const saveFeishu = async () => {
@@ -73,6 +80,11 @@ function OptionsPage() {
       maxFileSize
     })
     setSaved("飞书配置已保存")
+  }
+
+  const saveCollect = async () => {
+    await xiaohongshuCollectConfigStorage.set({ noteBatchEnabled })
+    setSaved("采集配置已保存")
   }
 
   const saveFields = async () => {
@@ -111,7 +123,8 @@ function OptionsPage() {
               onClick={() => {
                 setActive(item.key)
                 setSaved("")
-                window.location.hash = item.key === "feishu" ? "sync-feishu" : item.key
+                window.location.hash =
+                  item.key === "feishu" ? "sync-feishu" : item.key
               }}
               style={{
                 textAlign: "left",
@@ -187,6 +200,34 @@ function OptionsPage() {
               />
             </label>
             <button type="button" onClick={saveFeishu} style={primaryBtn}>
+              保存
+            </button>
+          </>
+        )}
+
+        {active === "collect" && (
+          <>
+            <h2 style={{ marginTop: 0 }}>采集设置</h2>
+            <p style={{ color: "#64748b", lineHeight: 1.6 }}>
+              笔记批量采集会调用小红书 feed 详情接口，频繁请求易触发风控（如 300011）。
+              开启后请控制条数、放慢节奏；正文与话题依赖 feed 返回的 desc / tag_list。
+            </p>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={noteBatchEnabled}
+                onChange={(e) => setNoteBatchEnabled(e.target.checked)}
+                style={{ marginTop: 3 }}
+              />
+              <span>
+                <strong>开启笔记批量采集</strong>
+                <br />
+                <span style={{ color: "#64748b", fontSize: 13 }}>
+                  含：侧边栏批量笔记、本页采集、关键词笔记、博主笔记列表。默认关闭。
+                </span>
+              </span>
+            </label>
+            <button type="button" onClick={saveCollect} style={{ ...primaryBtn, marginTop: 16 }}>
               保存
             </button>
           </>

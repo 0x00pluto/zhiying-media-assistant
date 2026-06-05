@@ -98,7 +98,7 @@ export const NOTE_COLUMNS: ColumnDef[] = [
       if (api === "user_posted" || api === "board_notes") {
         return data.display_title
       }
-      return data.title
+      return data.title || data.display_title
     }
   },
   {
