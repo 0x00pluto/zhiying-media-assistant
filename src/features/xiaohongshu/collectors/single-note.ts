@@ -2,6 +2,10 @@ import { fetchNoteFeed } from "~features/xiaohongshu/api/client"
 import { parseNoteUrl } from "~features/xiaohongshu/api/parsers"
 import { NOTE_COLUMNS } from "~features/xiaohongshu/columns/note"
 import {
+  getCachedFeedNote,
+  waitForCachedFeedNote
+} from "~features/xiaohongshu/collectors/feed-cache"
+import {
   applyDomEnrichment,
   mergeNoteSources
 } from "~features/xiaohongshu/collectors/note-enrich"
@@ -106,12 +110,17 @@ async function fetchNoteDetailEntry(noteId: string) {
   return (result?.entry || null) as Record<string, unknown> | null
 }
 
-export async function fetchNoteFromPage(noteId: string) {
+export async function fetchCurrNote(noteId: string) {
   const byId = await getWindowValue({
     currNote: ["__INITIAL_STATE__", "note", "noteDetailMap", noteId, "note"]
   })
-
   const direct = byId?.currNote as Record<string, unknown> | undefined
+  if (direct && Object.keys(direct).length > 0) return direct
+  return undefined
+}
+
+export async function fetchNoteFromPage(noteId: string) {
+  const direct = await fetchCurrNote(noteId)
   const entry = await fetchNoteDetailEntry(noteId)
   const entryNote = entry?.note as Record<string, unknown> | undefined
 
@@ -216,19 +225,22 @@ export async function collectSingleNote(noteId?: string) {
 
   const noteUrl = resolveNoteUrl(id)
   const [pageNote, detailEntry] = await Promise.all([
-    fetchNoteFromPage(id),
+    fetchCurrNote(id),
     fetchNoteDetailEntry(id)
   ])
-  let apiNote: Record<string, unknown> | undefined
+
+  const cachedFeedNote = await waitForCachedFeedNote(id)
+  let feedNote = cachedFeedNote
 
   try {
-    apiNote = await fetchNoteFromApi(id, noteUrl, pageNote)
+    const apiFeedNote = await fetchNoteFromApi(id, noteUrl, pageNote)
+    if (apiFeedNote) feedNote = apiFeedNote
   } catch (error) {
     console.warn("feed 接口补充笔记信息失败", error)
   }
 
-  let rawNote = mergeNoteSources(pageNote, apiNote, detailEntry || undefined)
-  rawNote = applyDomEnrichment(rawNote)
+  let rawNote = mergeNoteSources(pageNote, feedNote, detailEntry || undefined)
+  rawNote = await applyDomEnrichment(rawNote, id)
 
   if (!rawNote || Object.keys(rawNote).length === 0) {
     throw new Error("获取笔记信息失败，请刷新页面后重试")

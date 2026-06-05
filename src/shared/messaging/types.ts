@@ -12,6 +12,9 @@ export type ApiInterceptPayload = {
   result: unknown
 }
 
+/** MAIN world 与 isolated content script 之间传递 API 拦截结果 */
+export const QMC_API_RESPONSE_EVENT = "qmc:api-response"
+
 export type HttpRequestConfig = {
   url: string
   method?: string

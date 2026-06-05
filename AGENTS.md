@@ -4,7 +4,7 @@
 
 ## 项目是什么
 
-Chrome 扩展（Manifest V3），产品名 **全媒采集助手**。从 `dome/社媒助手-v3.3.0` 迁移重构，当前以 **小红书** 为主，支持笔记/博主/评论采集、批量任务、导出、飞书多维表格同步。
+Chrome 扩展（Manifest V3），产品名 **全媒采集助手**。从 `demo/社媒助手-v3.3.0` 迁移重构，当前以 **小红书** 为主，支持笔记/博主/评论采集、批量任务、导出、飞书多维表格同步。
 
 **明确不做**（勿自行加回）：
 
@@ -62,7 +62,7 @@ src/
 ├── sidepanel.tsx
 └── assets/
 
-dome/社媒助手-v3.3.0/       # 原版参考实现（只读对照，勿直接复制混淆代码）
+demo/社媒助手-v3.3.0/       # 原版参考实现（只读对照，勿直接复制混淆代码）
 .plasmo/                    # Plasmo 生成物，勿手改 messaging 注册逻辑
 build/                      # 构建产物，调试时加载此目录
 locales/zh_CN/messages.json # 扩展名称与描述 i18n
@@ -165,7 +165,7 @@ FeishuSyncModal / 快捷同步
 
 ## 对照原版
 
-行为或 UI 对齐时，查阅 `dome/社媒助手-v3.3.0/`：
+行为或 UI 对齐时，查阅 `demo/社媒助手-v3.3.0/`：
 
 - `content-scripts/content.js` — 内容脚本与飞书弹窗
 - `background.js` — `fetchForJson` 等后台消息

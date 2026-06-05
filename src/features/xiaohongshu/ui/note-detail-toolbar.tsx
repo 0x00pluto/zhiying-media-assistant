@@ -190,16 +190,31 @@ export function NoteDetailToolbar({ noteId: propNoteId }: Props) {
             width: "100%",
             boxSizing: "border-box"
           }}>
-          <Button type="primary" loading={downloading} onClick={handleDownload}>
+          <Button
+            type="primary"
+            className="qmc-toolbar-btn"
+            loading={downloading}
+            onClick={handleDownload}>
             {downloadLabel}
           </Button>
-          <Button type="primary" loading={copying} onClick={handleCopy}>
+          <Button
+            type="primary"
+            className="qmc-toolbar-btn"
+            loading={copying}
+            onClick={handleCopy}>
             复制笔记信息
           </Button>
-          <Button type="primary" loading={feishuSyncing} onClick={handleFeishu}>
+          <Button
+            type="primary"
+            className="qmc-toolbar-btn"
+            loading={feishuSyncing}
+            onClick={handleFeishu}>
             同步飞书
           </Button>
-          <Button type="primary" onClick={handleExportComments}>
+          <Button
+            type="primary"
+            className="qmc-toolbar-btn"
+            onClick={handleExportComments}>
             导出评论
           </Button>
         </div>

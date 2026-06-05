@@ -1,4 +1,7 @@
-import type { ApiInterceptPayload } from "~shared/messaging/types"
+import {
+  QMC_API_RESPONSE_EVENT,
+  type ApiInterceptPayload
+} from "~shared/messaging/types"
 
 function isJsonText(text: string): boolean {
   const trimmed = text.trim()
@@ -43,11 +46,23 @@ function shouldInterceptUrl(url: string | URL | Request, suffix: string): boolea
 }
 
 function emitResponse(payload: ApiInterceptPayload) {
-  chrome.runtime.sendMessage({
-    type: "response",
-    data: payload,
-    timestamp: Date.now()
-  })
+  try {
+    window.dispatchEvent(
+      new CustomEvent(QMC_API_RESPONSE_EVENT, { detail: payload })
+    )
+  } catch (error) {
+    console.warn("dispatch api response failed", error)
+  }
+
+  try {
+    chrome.runtime?.sendMessage?.({
+      type: "response",
+      data: payload,
+      timestamp: Date.now()
+    })
+  } catch {
+    // MAIN world 下 chrome.runtime 可能不可用，依赖 CustomEvent
+  }
 }
 
 async function handleFetchResponse(

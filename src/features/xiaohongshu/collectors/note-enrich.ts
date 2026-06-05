@@ -1,5 +1,12 @@
 import { parseUserUrl } from "~features/xiaohongshu/api/parsers"
-import { buildImageUrl } from "~features/xiaohongshu/media/extract"
+import {
+  buildImageUrl,
+  buildVideoUrl,
+  normalizeVideoObject,
+  resolveCoverUrl,
+  resolveVideoUrl
+} from "~features/xiaohongshu/media/extract"
+import { getWindowValue } from "~shared/messaging"
 
 function isEmptyValue(value: unknown) {
   if (value === undefined || value === null || value === "") return true
@@ -13,6 +20,79 @@ function isEmptyValue(value: unknown) {
 function preferValue<T>(page?: T, api?: T) {
   if (!isEmptyValue(api)) return api
   if (!isEmptyValue(page)) return page
+  return undefined
+}
+
+function mergeStreamLists(
+  base?: Array<Record<string, unknown>>,
+  extra?: Array<Record<string, unknown>>
+) {
+  if (!base?.length) return extra
+  if (!extra?.length) return base
+  return [...base, ...extra]
+}
+
+function mergeVideoObjects(
+  ...sources: Array<Record<string, unknown> | undefined>
+) {
+  const merged: Record<string, unknown> = {}
+
+  for (const source of sources) {
+    if (!source) continue
+
+    const currentMedia = (merged.media || {}) as Record<string, unknown>
+    const sourceMedia = (source.media || {}) as Record<string, unknown>
+    const currentStream = (currentMedia.stream || {}) as Record<
+      string,
+      Array<Record<string, unknown>>
+    >
+    const sourceStream = (sourceMedia.stream || {}) as Record<
+      string,
+      Array<Record<string, unknown>>
+    >
+
+    merged.media = {
+      ...currentMedia,
+      ...sourceMedia,
+      stream: {
+        ...currentStream,
+        h266: mergeStreamLists(currentStream.h266, sourceStream.h266),
+        h265: mergeStreamLists(currentStream.h265, sourceStream.h265),
+        h264: mergeStreamLists(currentStream.h264, sourceStream.h264),
+        av1: mergeStreamLists(currentStream.av1, sourceStream.av1)
+      }
+    }
+
+    const currentConsumer = (merged.consumer || {}) as Record<string, unknown>
+    const sourceConsumer = (source.consumer || {}) as Record<string, unknown>
+    merged.consumer = { ...currentConsumer, ...sourceConsumer }
+
+    for (const [key, value] of Object.entries(source)) {
+      if (key === "media" || key === "consumer") continue
+      if (!isEmptyValue(value)) merged[key] = value
+    }
+  }
+
+  return Object.keys(merged).length ? merged : undefined
+}
+
+function pickResolvableVideo(
+  ...candidates: Array<Record<string, unknown> | undefined>
+) {
+  for (const candidate of candidates) {
+    if (candidate && buildVideoUrl(normalizeVideoObject(candidate))) {
+      return normalizeVideoObject(candidate)
+    }
+  }
+
+  const merged = mergeVideoObjects(...candidates)
+  if (merged && buildVideoUrl(normalizeVideoObject(merged))) {
+    return normalizeVideoObject(merged)
+  }
+
+  for (const candidate of candidates) {
+    if (!isEmptyValue(candidate)) return candidate
+  }
   return undefined
 }
 
@@ -227,19 +307,28 @@ function extractIpFromDom() {
   return undefined
 }
 
+function isAvatarImage(img: HTMLImageElement) {
+  const src = img.currentSrc || img.src
+  if (src.includes("/avatar/")) return true
+  if (img.closest(".author-container, .avatar, [class*='avatar']")) return true
+  return false
+}
+
 function extractImagesFromDom() {
   const urls = new Set<string>()
   const selectors = [
     "#noteContainer .swiper-slide img",
     "#noteContainer .note-slider img",
     "#noteContainer .img-container img",
-    "#noteContainer img[src*='xhscdn']"
+    "#noteContainer .player-container img",
+    "#noteContainer .video-container img"
   ]
 
   for (const selector of selectors) {
     document.querySelectorAll<HTMLImageElement>(selector).forEach((img) => {
+      if (isAvatarImage(img)) return
       const src = img.currentSrc || img.src
-      if (src && src.includes("xhscdn")) {
+      if (src && src.includes("xhscdn") && !src.includes("/avatar/")) {
         urls.add(src.split("?")[0])
       }
     })
@@ -250,19 +339,58 @@ function extractImagesFromDom() {
   return Array.from(urls).map((url) => ({ url, url_default: url }))
 }
 
-function extractVideoFromDom() {
+function isUsableDomVideoUrl(url?: string) {
+  if (!url || url.startsWith("blob:")) return false
+  return /^https?:\/\//.test(url) && url.includes("xhscdn")
+}
+
+function collectDomVideoUrls() {
+  const urls: string[] = []
   const video = document.querySelector<HTMLVideoElement>(
     '#noteContainer video[mediatype="video"], #noteContainer video'
   )
-  if (!video?.src && !video?.currentSrc) return undefined
+  if (!video) return urls
 
+  const direct = video.currentSrc || video.src
+  if (isUsableDomVideoUrl(direct)) urls.push(direct)
+
+  video.querySelectorAll<HTMLSourceElement>("source").forEach((source) => {
+    const src = source.src
+    if (isUsableDomVideoUrl(src)) urls.push(src)
+  })
+
+  return urls
+}
+
+function buildVideoObjectFromUrl(url: string) {
   return {
     media: {
       stream: {
-        h264: [{ master_url: video.currentSrc || video.src }]
+        h264: [{ master_url: url }]
       }
     }
   }
+}
+
+async function extractVideoFromState(noteId?: string) {
+  if (!noteId) return undefined
+
+  const result = await getWindowValue({
+    video: ["__INITIAL_STATE__", "note", "noteDetailMap", noteId, "note", "video"]
+  })
+  const stateVideo = result?.video as Record<string, unknown> | undefined
+  if (stateVideo && buildVideoUrl(stateVideo)) return stateVideo
+
+  return undefined
+}
+
+async function extractVideoFromDom(noteId?: string) {
+  const domUrls = collectDomVideoUrls()
+  if (domUrls.length) {
+    return buildVideoObjectFromUrl(domUrls[0])
+  }
+
+  return extractVideoFromState(noteId)
 }
 
 function extractCoverFromDom() {
@@ -305,10 +433,15 @@ export function mergeNoteSources(
     apiNote?.ip_location
   )
   merged.image_list = preferValue(
-    pageNote?.image_list || entryNote?.image_list,
-    apiNote?.image_list
+    apiNote?.image_list,
+    pageNote?.image_list || entryNote?.image_list
   )
-  merged.video = preferValue(pageNote?.video || entryNote?.video, apiNote?.video)
+  merged.video = pickResolvableVideo(
+    apiNote?.video as Record<string, unknown> | undefined,
+    entryNote?.video as Record<string, unknown> | undefined,
+    pageNote?.video as Record<string, unknown> | undefined,
+    detailEntry?.video as Record<string, unknown> | undefined
+  )
   merged.cover = preferValue(pageNote?.cover || entryNote?.cover, apiNote?.cover)
   merged.tag_list = preferValue(
     pageNote?.tag_list || entryNote?.tag_list,
@@ -360,13 +493,20 @@ export function mergeNoteSources(
   return merged
 }
 
-export function applyDomEnrichment(note: Record<string, unknown>) {
+export async function applyDomEnrichment(
+  note: Record<string, unknown>,
+  noteId?: string
+) {
   enrichInteractFromStatistics(note)
 
   const domInteract = extractInteractFromDom()
   if (domInteract) {
     const current = (note.interact_info || {}) as Record<string, unknown>
-    note.interact_info = { ...current, ...domInteract }
+    const merged = { ...domInteract }
+    for (const [key, value] of Object.entries(current)) {
+      if (!isEmptyValue(value)) merged[key] = value
+    }
+    note.interact_info = merged
   }
 
   const domUser = extractUserFromDom()
@@ -380,11 +520,13 @@ export function applyDomEnrichment(note: Record<string, unknown>) {
     if (ip) note.ip_location = ip
   }
 
-  if (!note.type) {
-    const hasVideo = document.querySelector(
-      '#noteContainer video[mediatype="video"], #noteContainer video'
-    )
-    note.type = hasVideo ? "video" : "normal"
+  const hasVideoElement = document.querySelector(
+    '#noteContainer video[mediatype="video"], #noteContainer video'
+  )
+  if (hasVideoElement) {
+    note.type = "video"
+  } else if (!note.type) {
+    note.type = "normal"
   }
 
   if (isEmptyValue(note.image_list)) {
@@ -392,14 +534,30 @@ export function applyDomEnrichment(note: Record<string, unknown>) {
     if (images) note.image_list = images
   }
 
-  if (!note.cover && !isEmptyValue(note.image_list)) {
+  if (!resolveCoverUrl(note)) {
     const cover = extractCoverFromDom()
     if (cover) note.cover = cover
   }
 
-  if (note.type === "video" && !note.video) {
-    const video = extractVideoFromDom()
-    if (video) note.video = video
+  if (isEmptyValue(note.image_list) && note.type === "video") {
+    const cover = extractCoverFromDom()
+    if (cover) {
+      note.image_list = [{ url: cover.url, url_default: cover.url }]
+    }
+  }
+
+  const needsVideo =
+    note.type === "video" && !resolveVideoUrl(note)
+
+  if (needsVideo) {
+    const domVideo = await extractVideoFromDom(noteId)
+    if (domVideo) {
+      note.video =
+        mergeObjects(
+          note.video as Record<string, unknown> | undefined,
+          domVideo
+        ) || domVideo
+    }
   }
 
   if (isEmptyValue(note.tag_list)) {
@@ -414,6 +572,9 @@ export function applyDomEnrichment(note: Record<string, unknown>) {
   return note
 }
 
-export function applyDomInteractFallback(note: Record<string, unknown>) {
-  return applyDomEnrichment(note)
+export async function applyDomInteractFallback(
+  note: Record<string, unknown>,
+  noteId?: string
+) {
+  return applyDomEnrichment(note, noteId)
 }

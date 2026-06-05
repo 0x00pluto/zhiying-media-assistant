@@ -1,7 +1,11 @@
 import type { ColumnDef } from "~shared/columns/types"
 import { parseFeishuNumber } from "~features/feishu/field-mapper"
 import { normalizeTopicList } from "~features/xiaohongshu/collectors/note-enrich"
-import { buildImageUrl, buildVideoUrl } from "~features/xiaohongshu/media/extract"
+import {
+  buildImageUrl,
+  resolveCoverUrl,
+  resolveVideoUrl
+} from "~features/xiaohongshu/media/extract"
 
 const categories = {
   baseinfo: "笔记信息",
@@ -328,12 +332,13 @@ export const NOTE_COLUMNS: ColumnDef[] = [
     feishu: { type: 17, file_extension: "jpg" },
     apis: ["feed", "search_notes", "user_posted", "board_notes", "homefeed_notes"],
     handle: ({ data, api }) => {
-      const url = getCoverUrl(data, api)
-      if (url) return url
       if (api === "feed") {
-        const list = data.image_list as Array<Record<string, unknown>> | undefined
-        const first = list?.[0]
-        return first ? buildImageUrl(first, "jpg") : undefined
+        return resolveCoverUrl(data)
+      }
+      const url = getCoverUrl(data, api)
+      if (url) {
+        const built = buildImageUrl({ url }, "jpg")
+        return built || url
       }
     }
   },
@@ -384,10 +389,7 @@ export const NOTE_COLUMNS: ColumnDef[] = [
     default: true,
     feishu: { type: 15 },
     apis: ["feed"],
-    handle: ({ data }) => {
-      if (data.type !== "video" || !data.video) return undefined
-      return buildVideoUrl(data.video as Record<string, unknown>)
-    }
+    handle: ({ data }) => resolveVideoUrl(data)
   },
   {
     name: "搜索关键词",

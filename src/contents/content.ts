@@ -1,6 +1,8 @@
 import type { PlasmoCSConfig } from "plasmo"
 
+import { handleFeedApiResponse } from "~features/xiaohongshu/collectors/feed-cache"
 import type { ApiInterceptPayload } from "~shared/messaging/types"
+import { QMC_API_RESPONSE_EVENT } from "~shared/messaging/types"
 
 // matches 必须为字面量数组，Plasmo 才能在构建时写入 manifest（不可从常量 spread）
 export const config: PlasmoCSConfig = {
@@ -43,11 +45,21 @@ export function onApiResponse(listener: (payload: ApiInterceptPayload) => void) 
   return () => responseListeners.delete(listener)
 }
 
+function dispatchApiResponse(payload: ApiInterceptPayload) {
+  handleFeedApiResponse(payload)
+  for (const listener of responseListeners) {
+    listener(payload)
+  }
+}
+
+window.addEventListener(QMC_API_RESPONSE_EVENT, (event) => {
+  const payload = (event as CustomEvent<ApiInterceptPayload>).detail
+  if (payload) dispatchApiResponse(payload)
+})
+
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === "response" && message.data) {
-    for (const listener of responseListeners) {
-      listener(message.data as ApiInterceptPayload)
-    }
+    dispatchApiResponse(message.data as ApiInterceptPayload)
   }
 })
 
