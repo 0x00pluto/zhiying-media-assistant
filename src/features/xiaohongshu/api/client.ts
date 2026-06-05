@@ -9,6 +9,10 @@ async function xhsRequest<T = unknown>(config: HttpRequestConfig): Promise<T> {
     ...config
   })
 
+  if (!response) {
+    throw new Error("接口请求失败：页面未响应，请刷新小红书页面后重试")
+  }
+
   if (response.error) {
     throw new Error(response.error)
   }

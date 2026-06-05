@@ -34,6 +34,7 @@ export type FeishuSyncModalProps = {
   records: Record<string, unknown>[]
   storageKey?: string
   skipDialogKey?: string
+  defaultFieldOptions?: FieldOptions
 }
 
 type FormValues = {
@@ -60,7 +61,8 @@ export function FeishuSyncModal({
   columns,
   records,
   storageKey = "qmc-quickSyncFeishu-default",
-  skipDialogKey
+  skipDialogKey,
+  defaultFieldOptions
 }: FeishuSyncModalProps) {
   const [form] = Form.useForm<FormValues>()
   const [loading, setLoading] = useState(false)
@@ -84,7 +86,10 @@ export function FeishuSyncModal({
         url: saved?.url || history[0] || "",
         mode: saved?.mode || "merge",
         shouldUploadMedia: saved?.shouldUploadMedia ?? true,
-        fieldOptions: mergeFieldOptions(columns, saved?.fieldOptions),
+        fieldOptions: mergeFieldOptions(
+          columns,
+          saved?.fieldOptions ?? defaultFieldOptions
+        ),
         remark: saved?.remark || ""
       })
       setHistories(history)
@@ -94,7 +99,7 @@ export function FeishuSyncModal({
     return () => {
       cancelled = true
     }
-  }, [open, columns, form, storageKey])
+  }, [open, columns, defaultFieldOptions, form, storageKey])
 
   const handleSync = async (values: FormValues) => {
     if (!records.length) {

@@ -49,6 +49,7 @@ export function NoteDetailToolbar({ noteId: propNoteId }: Props) {
   const [feishuRecords, setFeishuRecords] = useState<Record<string, unknown>[]>(
     []
   )
+  const [exportingComments, setExportingComments] = useState(false)
 
   const downloadLabel = mediaType === "video" ? "下载视频" : "下载图片"
 
@@ -156,6 +157,7 @@ export function NoteDetailToolbar({ noteId: propNoteId }: Props) {
   }
 
   const handleExportComments = async () => {
+    setExportingComments(true)
     try {
       const { noteUrl, record, commentCount, rawNote } =
         await collectSingleNote(noteId)
@@ -174,6 +176,8 @@ export function NoteDetailToolbar({ noteId: propNoteId }: Props) {
       })
     } catch (error) {
       message.error((error as Error).message)
+    } finally {
+      setExportingComments(false)
     }
   }
 
@@ -214,6 +218,7 @@ export function NoteDetailToolbar({ noteId: propNoteId }: Props) {
           <Button
             type="primary"
             className="qmc-toolbar-btn"
+            loading={exportingComments}
             onClick={handleExportComments}>
             导出评论
           </Button>

@@ -5,8 +5,22 @@ import { buildSignedHeaders } from "./sign"
 declare global {
   interface Window {
     _smzsHttpRequest?: {
-      get?: (url: string, config: HttpRequestConfig) => Promise<unknown>
-      post?: (url: string, data: unknown, config: HttpRequestConfig) => Promise<unknown>
+      get?: (url: string, config: HttpRequestConfig) => Promise<{
+        status: number
+        statusText: string
+        data: unknown
+        headers: Record<string, string>
+      }>
+      post?: (
+        url: string,
+        data: unknown,
+        config: HttpRequestConfig
+      ) => Promise<{
+        status: number
+        statusText: string
+        data: unknown
+        headers: Record<string, string>
+      }>
       request?: (config: HttpRequestConfig) => Promise<{
         status: number
         statusText: string
@@ -23,6 +37,14 @@ declare global {
       error?: string
     }>
   }
+}
+
+type HttpResponse = {
+  status: number
+  statusText: string
+  data: unknown
+  headers: Record<string, string>
+  error?: string
 }
 
 function getBaseUrl(): string {
@@ -44,40 +66,85 @@ function buildUrl(path: string, params?: HttpRequestConfig["params"]): string {
   return url.toString()
 }
 
-async function enhancedRequest(config: HttpRequestConfig) {
+function normalizeRequestError(error: unknown): HttpResponse {
+  const err = error as {
+    message?: string
+    response?: {
+      status?: number
+      statusText?: string
+      data?: unknown
+      headers?: Record<string, string>
+    }
+  }
+
+  return {
+    error: err.message || "请求失败",
+    status: err.response?.status || 500,
+    statusText: err.response?.statusText || "",
+    data: err.response?.data,
+    headers: err.response?.headers || {}
+  }
+}
+
+async function enhancedRequest(config: HttpRequestConfig): Promise<HttpResponse> {
   const client = window._smzsHttpRequest
   if (!client) {
     return standardRequest(config)
   }
 
   const method = (config.method || "GET").toUpperCase()
-  const url = buildUrl(config.url, config.params)
+  const requestConfig: HttpRequestConfig = {
+    ...config,
+    method,
+    headers: {
+      "agw-js-conv": "str",
+      ...config.headers
+    }
+  }
+
+  const requestMethod = client[method.toLowerCase() as "get" | "post"]
+  if (!requestMethod || typeof requestMethod !== "function") {
+    return standardRequest(config)
+  }
 
   try {
-    if (["GET", "DELETE", "HEAD"].includes(method) && client.get) {
-      const data = await client.get(url, config)
-      return { status: 200, statusText: "OK", data, headers: {} }
+    if (["GET", "DELETE", "HEAD"].includes(method)) {
+      const response = await client.get!(requestConfig.url, requestConfig)
+      if (!response) {
+        return standardRequest(config)
+      }
+      return {
+        status: response.status,
+        statusText: response.statusText,
+        data: response.data,
+        headers: response.headers || {}
+      }
     }
 
-    if (["POST", "PUT", "PATCH"].includes(method) && client.post) {
-      const data = await client.post(url, config.data, config)
-      return { status: 200, statusText: "OK", data, headers: {} }
+    if (["POST", "PUT", "PATCH"].includes(method)) {
+      const response = await client.post!(
+        requestConfig.url,
+        requestConfig.data,
+        requestConfig
+      )
+      if (!response) {
+        return standardRequest(config)
+      }
+      return {
+        status: response.status,
+        statusText: response.statusText,
+        data: response.data,
+        headers: response.headers || {}
+      }
     }
   } catch (error) {
-    const err = error as { message?: string; response?: { status?: number; statusText?: string; data?: unknown; headers?: Record<string, string> } }
-    return {
-      error: err.message || "请求失败",
-      status: err.response?.status || 500,
-      statusText: err.response?.statusText || "",
-      data: err.response?.data,
-      headers: err.response?.headers || {}
-    }
+    return normalizeRequestError(error)
   }
 
   return standardRequest(config)
 }
 
-async function standardRequest(config: HttpRequestConfig) {
+async function standardRequest(config: HttpRequestConfig): Promise<HttpResponse> {
   const method = (config.method || "GET").toUpperCase()
   const path = config.url.startsWith("http")
     ? new URL(config.url).pathname + new URL(config.url).search

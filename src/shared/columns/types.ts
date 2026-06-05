@@ -6,7 +6,9 @@ export type XhsApiType =
   | "homefeed_notes"
   | "blogger"
   | "comment"
-  | "comment_sub"
+  | "sub_comment"
+  | "root_comment"
+  | "reply_comment"
 
 export type ColumnContext = {
   data: Record<string, unknown>

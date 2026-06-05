@@ -1,7 +1,6 @@
 import { Card } from "antd"
 
 import { MenuItem } from "~sidepanel/components/menu-item"
-import { PlatformSwitcher } from "~sidepanel/components/platform-switcher"
 
 type Props = {
   onNavigate: (path: string) => void
@@ -52,10 +51,6 @@ export function XiaohongshuHome({ onNavigate }: Props) {
           label="任务闹钟"
           onClick={() => onNavigate("/general/data-center/task-alarm")}
         />
-      </Card>
-
-      <Card className="sidepanel-card" title="其他平台" bordered={false}>
-        <PlatformSwitcher />
       </Card>
     </div>
   )

@@ -5,12 +5,14 @@ import type {
   HttpRequestConfig,
   NavigatePayload
 } from "./messaging/types"
+import { getActiveXhsTabId } from "./sidepanel-route"
 
 export async function openSidePanel() {
   return sendToBackground({ name: "open-sidepanel" })
 }
 
 export async function smzsRequest(config: HttpRequestConfig & { tabId?: number }) {
+  const tabId = config.tabId ?? (await getActiveXhsTabId())
   return sendToBackground<{
     status: number
     statusText: string
@@ -19,7 +21,7 @@ export async function smzsRequest(config: HttpRequestConfig & { tabId?: number }
     error?: string
   }>({
     name: "request",
-    body: config
+    body: { ...config, tabId }
   })
 }
 
@@ -34,8 +36,8 @@ export async function getWindowValue(
 }
 
 export async function navigateSidepanel(payload: NavigatePayload) {
+  await sendToBackground({ name: "navigate", body: payload })
   await openSidePanel()
-  return sendToBackground({ name: "navigate", body: payload })
 }
 
 export async function feishuUploadMedia(options: {

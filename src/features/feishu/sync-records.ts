@@ -1,3 +1,4 @@
+import { pickColumns } from "~shared/columns/pick"
 import type { ColumnDef } from "~shared/columns/types"
 import { feishuUploadMedia } from "~shared/messaging"
 
@@ -30,11 +31,6 @@ export type FeishuSyncParams = {
   shouldUploadMedia: boolean
   fieldOptions: FieldOptions
   remark?: string
-}
-
-function pickColumns(columns: ColumnDef[], fieldOptions: FieldOptions) {
-  const keySet = new Set(fieldOptions.keys)
-  return columns.filter((column) => keySet.has(column.key))
 }
 
 function pickRecord(

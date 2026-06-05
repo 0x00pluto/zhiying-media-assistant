@@ -1,4 +1,13 @@
-import type { GetWindowValuePayload, HttpRequestConfig } from "~shared/messaging/types"
+import type {
+  ExecuteRequestDetail,
+  ExecuteResponseDetail,
+  GetWindowValuePayload,
+  HttpRequestConfig
+} from "~shared/messaging/types"
+import {
+  QMC_EXECUTE_REQUEST_EVENT,
+  QMC_EXECUTE_RESPONSE_EVENT
+} from "~shared/messaging/types"
 
 import { getDomainSuffix, installFetchHook, installXhrHook } from "./hooks"
 import { executeHttpRequest, installSmzsHttpRequest } from "./http"
@@ -26,6 +35,38 @@ function getWindowValues(paths: GetWindowValuePayload) {
   }
 
   return result
+}
+
+function installExecuteRequestBridge() {
+  window.addEventListener(QMC_EXECUTE_REQUEST_EVENT, (event) => {
+    const detail = (event as CustomEvent<ExecuteRequestDetail>).detail
+    if (!detail?.requestId || !detail.config) return
+
+    void executeHttpRequest(detail.config)
+      .then((result) => {
+        window.dispatchEvent(
+          new CustomEvent<ExecuteResponseDetail>(QMC_EXECUTE_RESPONSE_EVENT, {
+            detail: { requestId: detail.requestId, result }
+          })
+        )
+      })
+      .catch((error) => {
+        window.dispatchEvent(
+          new CustomEvent<ExecuteResponseDetail>(QMC_EXECUTE_RESPONSE_EVENT, {
+            detail: {
+              requestId: detail.requestId,
+              result: {
+                status: 500,
+                statusText: "Error",
+                data: null,
+                headers: {},
+                error: (error as Error).message || "请求失败"
+              }
+            }
+          })
+        )
+      })
+  })
 }
 
 function installMessageHandlers() {
@@ -106,6 +147,7 @@ export function bootstrapMainWorld() {
   }
 
   installSmzsHttpRequest()
+  installExecuteRequestBridge()
   installMessageHandlers()
   hookWebpackHttpClient()
 }

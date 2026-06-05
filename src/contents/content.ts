@@ -1,8 +1,17 @@
 import type { PlasmoCSConfig } from "plasmo"
 
 import { handleFeedApiResponse } from "~features/xiaohongshu/collectors/feed-cache"
-import type { ApiInterceptPayload } from "~shared/messaging/types"
-import { QMC_API_RESPONSE_EVENT } from "~shared/messaging/types"
+import type {
+  ApiInterceptPayload,
+  ExecuteRequestDetail,
+  ExecuteResponseDetail,
+  HttpRequestConfig
+} from "~shared/messaging/types"
+import {
+  QMC_API_RESPONSE_EVENT,
+  QMC_EXECUTE_REQUEST_EVENT,
+  QMC_EXECUTE_RESPONSE_EVENT
+} from "~shared/messaging/types"
 
 // matches 必须为字面量数组，Plasmo 才能在构建时写入 manifest（不可从常量 spread）
 export const config: PlasmoCSConfig = {
@@ -57,10 +66,55 @@ window.addEventListener(QMC_API_RESPONSE_EVENT, (event) => {
   if (payload) dispatchApiResponse(payload)
 })
 
-chrome.runtime.onMessage.addListener((message) => {
+function bridgeRequestToMainWorld(config: HttpRequestConfig) {
+  return new Promise<ExecuteResponseDetail["result"]>((resolve) => {
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    let settled = false
+
+    const onResponse = (event: Event) => {
+      const detail = (event as CustomEvent<ExecuteResponseDetail>).detail
+      if (!detail || detail.requestId !== requestId) return
+
+      settled = true
+      window.removeEventListener(QMC_EXECUTE_RESPONSE_EVENT, onResponse)
+      resolve(detail.result)
+    }
+
+    window.addEventListener(QMC_EXECUTE_RESPONSE_EVENT, onResponse)
+    window.dispatchEvent(
+      new CustomEvent<ExecuteRequestDetail>(QMC_EXECUTE_REQUEST_EVENT, {
+        detail: { requestId, config }
+      })
+    )
+
+    window.setTimeout(() => {
+      if (settled) return
+      window.removeEventListener(QMC_EXECUTE_RESPONSE_EVENT, onResponse)
+      resolve({
+        status: 500,
+        statusText: "Error",
+        data: null,
+        headers: {},
+        error: "页面脚本未响应，请刷新小红书页面后重试"
+      })
+    }, 30000)
+  })
+}
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "response" && message.data) {
     dispatchApiResponse(message.data as ApiInterceptPayload)
+    return false
   }
+
+  if (message?.type === "request" && message.data) {
+    void bridgeRequestToMainWorld(message.data as HttpRequestConfig).then(
+      (result) => sendResponse(result)
+    )
+    return true
+  }
+
+  return false
 })
 
 console.info("[quanmediacrawl] isolated content script loaded")

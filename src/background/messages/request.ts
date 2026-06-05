@@ -9,6 +9,16 @@ const handler: PlasmoMessaging.MessageHandler<RequestBody> = async (req, res) =>
   try {
     const { tabId, ...config } = req.body
     const data = await requestViaMainWorld(config, tabId)
+    if (!data) {
+      res.send({
+        status: 500,
+        statusText: "Error",
+        data: null,
+        headers: {},
+        error: "页面未响应，请刷新小红书页面后重试"
+      })
+      return
+    }
     res.send(data)
   } catch (error) {
     res.send({

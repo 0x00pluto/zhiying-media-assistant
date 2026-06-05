@@ -1,5 +1,5 @@
 import { Button } from "antd"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import { PlaceholderPage } from "./pages/general/placeholder"
 import { BatchBloggerPage } from "./pages/xiaohongshu/batch-blogger"
@@ -7,6 +7,7 @@ import { BatchCommentPage } from "./pages/xiaohongshu/batch-comment"
 import { BatchNotePage } from "./pages/xiaohongshu/batch-note"
 import { XiaohongshuHome } from "./pages/xiaohongshu/index"
 import { UrlTransformPage } from "./pages/xiaohongshu/url-transform"
+import { consumePendingSidepanelRoute } from "~shared/sidepanel-route"
 
 type RouteState = {
   path: string
@@ -21,28 +22,70 @@ const PLACEHOLDER_TITLES: Record<string, string> = {
   "/general/data-center/task-alarm": "任务闹钟"
 }
 
+async function applyNavigatePayload(
+  payload: {
+    to: string
+    options?: { state?: Record<string, unknown> }
+    tabId?: number
+  },
+  setRoute: (route: RouteState) => void
+) {
+  if (payload.tabId) {
+    await chrome.storage.session.set({ "qmc:activeXhsTabId": payload.tabId })
+  }
+
+  setRoute({
+    path: payload.to,
+    state: payload.options?.state
+  })
+}
+
 export function SidepanelRouter() {
   const [route, setRoute] = useState<RouteState>(DEFAULT_ROUTE)
 
+  const navigate = useCallback((path: string, state?: Record<string, unknown>) => {
+    setRoute({ path, state })
+  }, [])
+
   useEffect(() => {
-    chrome.runtime.onMessage.addListener((message) => {
+    const handleNavigateMessage = (message: {
+      type?: string
+      data?: {
+        to: string
+        options?: { state?: Record<string, unknown> }
+        tabId?: number
+      }
+    }) => {
       if (message?.type === "navigate" && message.data?.to) {
-        setRoute({
-          path: message.data.to,
-          state: message.data.options?.state
-        })
+        void applyNavigatePayload(message.data, setRoute)
+      }
+    }
+
+    chrome.runtime.onMessage.addListener(handleNavigateMessage)
+
+    void consumePendingSidepanelRoute().then((pending) => {
+      if (pending?.to) {
+        applyNavigatePayload(pending, setRoute)
       }
     })
 
     window.router = {
-      navigate: (to, options) => setRoute({ path: to, state: options?.state }),
-      location: { pathname: route.path }
+      navigate: (to, options) => {
+        setRoute({ path: to, state: options?.state })
+      },
+      location: { pathname: "/xiaohongshu" }
+    }
+
+    return () => {
+      chrome.runtime.onMessage.removeListener(handleNavigateMessage)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (window.router) {
+      window.router.location = { pathname: route.path }
     }
   }, [route.path])
-
-  const navigate = (path: string, state?: Record<string, unknown>) => {
-    setRoute({ path, state })
-  }
 
   const goBack = () => navigate("/xiaohongshu")
 
@@ -98,7 +141,7 @@ export function SidepanelHeader() {
     <header className="sidepanel-header">
       <h1 className="sidepanel-header__title">全媒采集助手 - 小红书</h1>
       <Button type="text" aria-label="设置" onClick={() => chrome.runtime.openOptionsPage()}>
-        Settings
+        设置
       </Button>
     </header>
   )

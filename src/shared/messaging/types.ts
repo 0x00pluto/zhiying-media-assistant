@@ -25,6 +25,26 @@ export type HttpRequestConfig = {
   skipErrorHandler?: boolean
 }
 
+/** isolated → MAIN world 请求桥接 */
+export const QMC_EXECUTE_REQUEST_EVENT = "qmc:execute-request"
+export const QMC_EXECUTE_RESPONSE_EVENT = "qmc:execute-response"
+
+export type ExecuteRequestDetail = {
+  requestId: string
+  config: HttpRequestConfig
+}
+
+export type ExecuteResponseDetail = {
+  requestId: string
+  result: {
+    status: number
+    statusText: string
+    data: unknown
+    headers: Record<string, string>
+    error?: string
+  }
+}
+
 export type NavigatePayload = {
   to: string
   options?: {
