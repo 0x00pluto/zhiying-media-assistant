@@ -1,0 +1,89 @@
+{
+  "name": "quanmediacrawl",
+  "displayName": "__MSG_extName__",
+  "version": "0.1.0",
+  "description": "__MSG_extDescription__",
+  "author": "",
+  "homepage": "https://socialext.com",
+  "scripts": {
+    "dev": "plasmo dev",
+    "build": "plasmo build",
+    "package": "plasmo package"
+  },
+  "dependencies": {
+    "@plasmohq/messaging": "^0.7.2",
+    "@plasmohq/storage": "^1.15.0",
+    "antd": "^6.4.3",
+    "plasmo": "0.90.5",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-router-dom": "^7.17.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@ianvs/prettier-plugin-sort-imports": "4.1.1",
+    "@types/chrome": "0.0.268",
+    "@types/node": "20.11.5",
+    "@types/react": "18.2.48",
+    "@types/react-dom": "18.2.18",
+    "prettier": "3.2.4",
+    "typescript": "5.3.3"
+  },
+  "manifest": {
+    "name": "__MSG_extName__",
+    "default_locale": "zh_CN",
+    "minimum_chrome_version": "116",
+    "permissions": [
+      "tabs",
+      "downloads",
+      "storage",
+      "scripting",
+      "cookies",
+      "alarms",
+      "sidePanel"
+    ],
+    "host_permissions": [
+      "<all_urls>",
+      "https://open.feishu.cn/*"
+    ],
+    "action": {},
+    "commands": {
+      "_execute_action": {
+        "suggested_key": {
+          "default": "Alt+C"
+        }
+      }
+    },
+    "options_ui": {
+      "open_in_tab": true
+    },
+    "web_accessible_resources": [
+      {
+        "resources": [
+          "tabs/download-repeater.html",
+          "assets/platforms/*.svg",
+          "platforms/*.svg"
+        ],
+        "matches": [
+          "*://b23.tv/*",
+          "*://live.kuaishou.com/*",
+          "*://pgy.xiaohongshu.com/*",
+          "*://search.bilibili.com/*",
+          "*://space.bilibili.com/*",
+          "*://v.douyin.com/*",
+          "*://v.kuaishou.com/*",
+          "*://vt.tiktok.com/*",
+          "*://www.bilibili.com/*",
+          "*://www.douyin.com/*",
+          "*://www.iesdouyin.com/*",
+          "*://www.kuaishou.com/*",
+          "*://www.rednote.com/*",
+          "*://www.tiktok.com/*",
+          "*://www.xiaohongshu.com/*",
+          "*://www.xingtu.cn/*",
+          "*://xhslink.com/*"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,108 @@
+import { smzsRequest } from "~shared/messaging"
+import type { HttpRequestConfig } from "~shared/messaging/types"
+
+import { XHS_ENDPOINTS } from "./endpoints"
+
+async function xhsRequest<T = unknown>(config: HttpRequestConfig): Promise<T> {
+  const response = await smzsRequest({
+    enhanced: true,
+    ...config
+  })
+
+  if (response.error) {
+    throw new Error(response.error)
+  }
+
+  const body = response.data as { code?: number; data?: T; msg?: string }
+  if (body && typeof body === "object" && "data" in body) {
+    return body.data as T
+  }
+
+  return response.data as T
+}
+
+export async function fetchNoteFeed(payload: {
+  source_note_id: string
+  image_formats?: string[]
+  extra?: Record<string, string>
+  xsec_source?: string
+  xsec_token?: string
+}) {
+  return xhsRequest({
+    url: XHS_ENDPOINTS.feed,
+    method: "POST",
+    data: payload
+  })
+}
+
+export async function fetchUserInfo(params: { target_user_id: string }) {
+  return xhsRequest({
+    url: XHS_ENDPOINTS.userOtherInfo,
+    params
+  })
+}
+
+export async function fetchUserPosted(params: Record<string, string | number>) {
+  return xhsRequest({
+    url: XHS_ENDPOINTS.userPosted,
+    params
+  })
+}
+
+export async function searchNotes(data: Record<string, unknown>) {
+  return xhsRequest<{
+    items?: Array<Record<string, unknown>>
+    has_more?: boolean
+  }>({
+    url: XHS_ENDPOINTS.searchNotes,
+    method: "POST",
+    data
+  })
+}
+
+export async function searchUsers(params: Record<string, string | number>) {
+  return xhsRequest<{
+    users?: Array<Record<string, unknown>>
+    has_more?: boolean
+  }>({
+    url: XHS_ENDPOINTS.searchUser,
+    params
+  })
+}
+
+export async function fetchBoardNotes(params: Record<string, string | number>) {
+  return xhsRequest({
+    url: XHS_ENDPOINTS.boardNotes,
+    params
+  })
+}
+
+export async function fetchComments(params: Record<string, string | number>) {
+  return xhsRequest({
+    url: XHS_ENDPOINTS.commentPage,
+    params
+  })
+}
+
+export async function fetchSubComments(params: Record<string, string | number>) {
+  return xhsRequest({
+    url: XHS_ENDPOINTS.commentSubPage,
+    params
+  })
+}
+
+export async function createShortUrl(data: { original_url: string }) {
+  return xhsRequest({
+    url: XHS_ENDPOINTS.shortUrl,
+    method: "POST",
+    data
+  })
+}
+
+export async function fetchHomefeed(data: Record<string, unknown>) {
+  return xhsRequest({
+    url: XHS_ENDPOINTS.homefeed,
+    method: "POST",
+    data
+  })
+}
