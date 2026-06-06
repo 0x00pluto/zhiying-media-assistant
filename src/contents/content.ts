@@ -4,7 +4,14 @@ import {
   getCachedFeedNote,
   handleFeedApiResponse
 } from "~features/xiaohongshu/collectors/feed-cache"
-import { handlePageNotesApiResponse } from "~features/xiaohongshu/collectors/page-notes-cache"
+import {
+  handlePageNotesApiResponse,
+  syncPageCollectContextFromHref
+} from "~features/xiaohongshu/collectors/page-notes-cache"
+import {
+  installXhsSpaHrefWatcher,
+  SPA_HREF_EVENT
+} from "~features/xiaohongshu/utils/spa-location"
 import type {
   ApiInterceptPayload,
   ExecuteRequestDetail,
@@ -70,6 +77,18 @@ window.addEventListener(QMC_API_RESPONSE_EVENT, (event) => {
   const payload = (event as CustomEvent<ApiInterceptPayload>).detail
   if (payload) dispatchApiResponse(payload)
 })
+
+function installPageCollectContextWatcher() {
+  installXhsSpaHrefWatcher()
+
+  const syncContext = () => syncPageCollectContextFromHref(location.href)
+
+  syncContext()
+  window.addEventListener(SPA_HREF_EVENT, syncContext)
+  window.addEventListener("popstate", syncContext)
+}
+
+installPageCollectContextWatcher()
 
 function bridgeRequestToMainWorld(config: HttpRequestConfig) {
   return new Promise<ExecuteResponseDetail["result"]>((resolve) => {

@@ -22,7 +22,7 @@ export function SearchPageToolbar({ keyword, tab }: Props) {
   useEffect(() => {
     scanDomNoteLinks(".feeds-container", "pc_search")
     return subscribePageNotes(() => {})
-  }, [])
+  }, [keyword])
 
   useEffect(() => {
     const target = document.querySelector(".feeds-container")

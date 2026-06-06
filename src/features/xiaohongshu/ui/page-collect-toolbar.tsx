@@ -1,17 +1,17 @@
 import { useEffect, useLayoutEffect, useState } from "react"
 
 import {
+  activatePageCollectContext,
   bootstrapPageNotesFromFeeds,
   bootstrapPageNotesFromPosted,
-  clearPageNotes,
   scanDomNoteLinks,
-  subscribePageNotes
+  subscribePageNotes,
+  type PageCollectType
 } from "~features/xiaohongshu/collectors/page-notes-cache"
 import { getWindowValue } from "~shared/messaging"
 import { useNoteBatchCollectEnabled } from "~features/xiaohongshu/use-note-batch-enabled"
 import {
-  CollectPageNotesModal,
-  type PageCollectType
+  CollectPageNotesModal
 } from "~features/xiaohongshu/ui/collect-page-notes-modal"
 import { qmcCsuiButtonStyle } from "~features/xiaohongshu/ui/csui-theme"
 import { computeExploreChannelMarginLeft } from "~features/xiaohongshu/utils/csui-mount-ready"
@@ -25,7 +25,7 @@ type Props = {
 async function bootstrapPageNotes(pageType: PageCollectType) {
   try {
     if (pageType === "explore") {
-      clearPageNotes()
+      activatePageCollectContext("explore")
       const result = await getWindowValue({
         feeds: ["__INITIAL_STATE__", "feed", "feeds", "_rawValue"]
       })

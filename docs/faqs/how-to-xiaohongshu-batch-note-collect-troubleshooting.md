@@ -1,3 +1,28 @@
+### **Q: 发现页采集后再搜索，「采集本页笔记」链接仍是 pc_feed / 采到的还是首页笔记？**
+
+**A:**
+同 Tab 内从发现页 SPA 到搜索页时，若侧边栏链接未换成 `pc_search`、采集结果仍是首页标题，说明 **page-notes 缓存未随页面切换隔离**（旧版 bug）。
+
+**问题症状：**
+
+- 发现页「采集本页笔记」正常，链接含 `xsec_source=pc_feed`
+- 不刷新页面，搜索关键词后再点「采集本页笔记」
+- 侧边栏链接区仍是首页 URL，或采集前几条仍是发现页笔记
+
+**根本原因：**
+
+`window.__qmcPageNotesStore` 为 Tab 级全局 Map；SPA 切页后首页 `homefeed_notes` 未清掉，与搜索 `search_notes` 混存，且 Map 顺序与 merge 规则会让 `pc_feed` 链接优先。
+
+**解决方案（已实现）：**
+
+1. `content.ts` 监听 SPA 路由，进入 `/search_result` / `/explore` / `/user/profile/` 时调用 `activatePageCollectContext`。
+2. 弹窗打开与确认采集统一走 `getCollectiblePageNotesForContext(pageType)`，只导出当前场景笔记。
+3. 改动后请在 `chrome://extensions` **重新加载**扩展并**硬刷新**小红书页再测。
+
+**验证：** 搜索页确认采集后，侧边栏链接应全部为 `pc_search`，标题与当前搜索结果一致。
+
+---
+
 ### **Q: 如何解决小红书搜索页「采集本页笔记」批量采集 feed 失败或缺字段的问题？**
 
 **A:**

@@ -3,14 +3,13 @@ import { Button, Modal, message } from "antd"
 import { useEffect, useState } from "react"
 
 import {
+  activatePageCollectContext,
   bootstrapPageNotesFromFeeds,
   bootstrapPageNotesFromPosted,
-  clearPageNotes,
-  getCollectiblePageNotes,
-  getCollectiblePageNotesCount,
-  getPageNoteUrls,
+  getCollectiblePageNotesForContext,
   scanDomNoteLinks,
-  subscribePageNotes
+  subscribePageNotes,
+  type PageCollectType
 } from "~features/xiaohongshu/collectors/page-notes-cache"
 import {
   NOTE_BATCH_COLLECT_DISABLED_HINT,
@@ -20,7 +19,7 @@ import { getFeishuModalProps } from "~features/feishu/modal-utils"
 import { QMC_CSUI_PRIMARY } from "~features/xiaohongshu/ui/csui-theme"
 import { getWindowValue, navigateSidepanel } from "~shared/messaging"
 
-export type PageCollectType = "explore" | "search" | "profile"
+export type { PageCollectType } from "~features/xiaohongshu/collectors/page-notes-cache"
 
 const TASK_NAME: Record<PageCollectType, string> = {
   explore: "发现页的笔记数据",
@@ -71,16 +70,18 @@ export function CollectPageNotesModal({ open, pageType, onClose }: Props) {
   useEffect(() => {
     if (!open) return
 
-    // 仅发现页需要清缓存（避免搜索页 pc_search 污染）；搜索页笔记靠 API 拦截累积，不能清空
-    if (pageType === "explore") {
-      clearPageNotes()
-    }
+    activatePageCollectContext(pageType)
     void refreshBootstrap(pageType)
-    return subscribePageNotes(setCount)
+
+    const syncCount = () => {
+      setCount(getCollectiblePageNotesForContext(pageType).length)
+    }
+
+    return subscribePageNotes(syncCount)
   }, [open, pageType])
 
   const handleCopyLinks = async () => {
-    const urls = getPageNoteUrls()
+    const urls = getCollectiblePageNotesForContext(pageType).map((note) => note.url)
     if (!urls.length) {
       message.warning("数据为空，无法复制链接")
       return
@@ -100,7 +101,7 @@ export function CollectPageNotesModal({ open, pageType, onClose }: Props) {
       return
     }
 
-    const pageNotes = getCollectiblePageNotes()
+    const pageNotes = getCollectiblePageNotesForContext(pageType)
     const urls = pageNotes.map((note) => note.url)
     if (!urls.length) {
       message.warning("数据为空，无法采集")
@@ -213,7 +214,7 @@ export function CollectPageNotesModal({ open, pageType, onClose }: Props) {
         <p style={{ margin: "8px 0 0", fontSize: 13, color: "#6b7280" }}>
           检测到{" "}
           <strong style={{ fontSize: 28, color: QMC_CSUI_PRIMARY, lineHeight: 1 }}>
-            {open ? count : getCollectiblePageNotesCount()}
+            {open ? count : getCollectiblePageNotesForContext(pageType).length}
           </strong>{" "}
           条笔记
         </p>

@@ -12,6 +12,8 @@ import {
 
 export const QMC_PAGE_NOTES_CHANGED_EVENT = "qmc:page-notes-changed"
 
+export type PageCollectType = "explore" | "search" | "profile"
+
 export type PageNoteEntry = {
   id: string
   xsec_token: string
@@ -21,9 +23,16 @@ export type PageNoteEntry = {
   noteCard?: Record<string, unknown>
 }
 
+const PAGE_COLLECT_APIS: Record<PageCollectType, XhsApiType> = {
+  explore: "homefeed_notes",
+  search: "search_notes",
+  profile: "user_posted"
+}
+
 declare global {
   interface Window {
     __qmcPageNotesStore?: Map<string, PageNoteEntry>
+    __qmcPageCollectContext?: PageCollectType
   }
 }
 
@@ -283,6 +292,60 @@ export function getPageNotesCount(): number {
 
 export function getCollectiblePageNotesCount(): number {
   return getCollectiblePageNotes().length
+}
+
+function clearPageNotesExceptApi(allowedApi: XhsApiType) {
+  const store = getPageNotesStore()
+  let changed = false
+
+  for (const [id, note] of store) {
+    if (note.api !== allowedApi) {
+      store.delete(id)
+      changed = true
+    }
+  }
+
+  if (changed) notifyChange()
+}
+
+/** 切换采集上下文：清掉非本场景条目并记录当前页面类型 */
+export function activatePageCollectContext(pageType: PageCollectType) {
+  if (window.__qmcPageCollectContext === pageType) return
+
+  window.__qmcPageCollectContext = pageType
+  clearPageNotesExceptApi(PAGE_COLLECT_APIS[pageType])
+}
+
+export function resolvePageCollectTypeFromHref(
+  href?: string
+): PageCollectType | null {
+  try {
+    const target = href ?? location.href
+    const { pathname } = new URL(target)
+
+    if (pathname.startsWith("/search_result")) return "search"
+    if (pathname === "/explore" || pathname === "/explore/") return "explore"
+    if (pathname.startsWith("/user/profile/")) return "profile"
+    return null
+  } catch {
+    return null
+  }
+}
+
+export function syncPageCollectContextFromHref(href?: string) {
+  const pageType = resolvePageCollectTypeFromHref(href)
+  if (pageType) activatePageCollectContext(pageType)
+}
+
+/** confirm / copy 唯一读取出口 */
+export function getCollectiblePageNotesForContext(
+  pageType?: PageCollectType
+): PageNoteEntry[] {
+  const ctx = pageType ?? window.__qmcPageCollectContext
+  if (!ctx) return getCollectiblePageNotes()
+
+  const allowedApi = PAGE_COLLECT_APIS[ctx]
+  return getCollectiblePageNotes().filter((note) => note.api === allowedApi)
 }
 
 export function clearPageNotes() {

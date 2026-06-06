@@ -47,7 +47,10 @@ async function applyNavigatePayload(
 
   setRoute({
     path,
-    state: payload.options?.state
+    state: {
+      ...payload.options?.state,
+      navId: Date.now()
+    }
   })
 }
 
@@ -83,7 +86,13 @@ export function SidepanelRouter() {
     window.router = {
       navigate: (to, options) => {
         const path = REMOVED_ROUTES.has(to) ? DEFAULT_ROUTE.path : to
-        setRoute({ path, state: options?.state })
+        setRoute({
+          path,
+          state: {
+            ...options?.state,
+            navId: Date.now()
+          }
+        })
       },
       location: { pathname: "/xiaohongshu" }
     }
@@ -111,7 +120,12 @@ export function SidepanelRouter() {
 
   switch (route.path) {
     case "/xiaohongshu/batch-collect/note":
-      content = <BatchNotePage initialState={route.state} />
+      content = (
+        <BatchNotePage
+          key={String(route.state?.navId ?? "batch-note")}
+          initialState={route.state}
+        />
+      )
       break
     case "/xiaohongshu/batch-collect/blogger":
       content = <BatchBloggerPage initialState={route.state} />
