@@ -5,6 +5,11 @@ export const COMMENT_COLLECT_INTERVAL = {
   subRootExtra: { min: 0, max: 1 }
 } as const
 
+/** 与浏览器 comment/page query 一致 */
+export const COMMENT_FETCH_PARAMS = {
+  image_formats: "jpg,webp,avif"
+} as const
+
 export function formatCommentRequestError(error: unknown) {
   const message = (error as Error).message || String(error)
   if (
@@ -121,4 +126,95 @@ export function needsSubCommentFetch(rootComment: Record<string, unknown>) {
       rootComment.sub_comment_has_more ?? rootComment.subCommentHasMore
     ) || totalSubCount > embeddedCount
   )
+}
+
+function pickPictureUrlFromInfoList(infoList: unknown) {
+  if (!Array.isArray(infoList) || infoList.length === 0) return undefined
+
+  const items = infoList as Array<Record<string, unknown>>
+  const preferred = items.find(
+    (item) =>
+      item.image_scene === "WB_DFT" || item.imageScene === "WB_DFT"
+  )
+  const target = preferred ?? items[0]
+  const url = target.url
+  return typeof url === "string" && url ? url : undefined
+}
+
+function pickPictureUrl(picture: Record<string, unknown>) {
+  const direct =
+    picture.url_default ??
+    picture.urlDefault ??
+    picture.url_pre ??
+    picture.urlPre ??
+    picture.url
+
+  if (typeof direct === "string" && direct) return direct
+
+  return (
+    pickPictureUrlFromInfoList(picture.info_list) ??
+    pickPictureUrlFromInfoList(picture.infoList)
+  )
+}
+
+function normalizeCommentPictures(data: Record<string, unknown>) {
+  const raw = data.pictures ?? data.picture
+  if (Array.isArray(raw)) {
+    return raw as Array<Record<string, unknown>>
+  }
+  if (raw != null && typeof raw === "object") {
+    return [raw as Record<string, unknown>]
+  }
+  return []
+}
+
+/** 从 comment/sub_comment 原始 data 提取图片 CDN 链接（多图换行） */
+export function getCommentPictureUrls(data: Record<string, unknown>) {
+  const urls = normalizeCommentPictures(data)
+    .map((item) => pickPictureUrl(item))
+    .filter((url): url is string => Boolean(url))
+
+  if (!urls.length) return undefined
+  return urls.join("\n")
+}
+
+export type CommentUserInfo = {
+  user_id?: unknown
+  nickname?: unknown
+}
+
+/** 统一读取评论 user_info（兼容 camelCase 与 nick_name 变体） */
+export function getCommentUserInfo(
+  data: Record<string, unknown>
+): CommentUserInfo | undefined {
+  const raw = (data.user_info ?? data.userInfo) as
+    | Record<string, unknown>
+    | undefined
+  if (!raw || typeof raw !== "object") return undefined
+
+  const userId = raw.user_id ?? raw.userId
+  const nickname = raw.nickname ?? raw.nick_name ?? raw.nickName
+
+  if (userId === undefined && nickname === undefined) return undefined
+
+  return { user_id: userId, nickname }
+}
+
+/** 读取评论点赞数（兼容 likeCount / likedCount 变体） */
+export function getCommentLikeCount(data: Record<string, unknown>) {
+  return data.like_count ?? data.liked_count
+}
+
+/** 读取评论 IP 属地（优先 ip_location，兜底 reply_control.location） */
+export function getCommentIpLocation(data: Record<string, unknown>) {
+  const direct = data.ip_location ?? data.ipLocation
+  if (typeof direct === "string" && direct) return direct
+
+  const replyControl = (data.reply_control ?? data.replyControl) as
+    | Record<string, unknown>
+    | undefined
+  const location = replyControl?.location
+  if (typeof location !== "string" || !location) return undefined
+
+  return location.replace(/^IP属地：/, "")
 }

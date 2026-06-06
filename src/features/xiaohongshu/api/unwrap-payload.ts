@@ -5,7 +5,20 @@ const XHS_KEY_ALIASES: ReadonlyArray<readonly [snake: string, camel: string]> = 
   ["sub_comment_has_more", "subCommentHasMore"],
   ["sub_comment_cursor", "subCommentCursor"],
   ["sub_comment_count", "subCommentCount"],
-  ["sub_comments", "subComments"]
+  ["sub_comments", "subComments"],
+  ["info_list", "infoList"],
+  ["url_default", "urlDefault"],
+  ["url_pre", "urlPre"],
+  ["image_scene", "imageScene"],
+  ["like_count", "likeCount"],
+  ["liked_count", "likedCount"],
+  ["create_time", "createTime"],
+  ["ip_location", "ipLocation"],
+  ["user_info", "userInfo"],
+  ["user_id", "userId"],
+  ["target_comment", "targetComment"],
+  ["reply_control", "replyControl"],
+  ["nick_name", "nickName"]
 ]
 
 export function normalizeXhsApiKeys(raw: unknown): unknown {

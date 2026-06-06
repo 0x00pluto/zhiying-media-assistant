@@ -6,6 +6,7 @@ import type { FieldOptions } from "~features/feishu/sync-records"
 import { COMMENT_COLUMNS } from "~features/xiaohongshu/columns/comment"
 import { CommentCollector } from "~features/xiaohongshu/tasks/comment"
 import { FeishuSyncPanel } from "~sidepanel/components/feishu-sync-panel"
+import { BatchRecordsTable } from "~sidepanel/components/batch-records-table"
 import { getCurrentTask, runTask } from "~sidepanel/store/task"
 import { exportCsv } from "~sidepanel/utils/export"
 import {
@@ -124,6 +125,7 @@ export function BatchCommentPage({ initialState }: Props) {
 
     setError("")
     setPartialWarning("")
+    setRecords([])
     setRunning(true)
 
     const effectiveLimit = Math.min(
@@ -307,6 +309,8 @@ export function BatchCommentPage({ initialState }: Props) {
           }
         />
       )}
+
+      <BatchRecordsTable columns={COMMENT_COLUMNS} records={records} />
     </div>
   )
 }

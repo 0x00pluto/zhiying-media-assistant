@@ -77,6 +77,75 @@ describe("normalizeXhsApiKeys", () => {
       hasMore: true
     })
   })
+
+  it("comment pictures 常见 camelCase 补为 snake_case", () => {
+    expect(
+      normalizeXhsApiKeys({
+        pictures: [
+          {
+            urlPre: "https://sns-webpic-qc.xhscdn.com/pre.jpg",
+            infoList: [{ imageScene: "WB_DFT", url: "https://example.com/d.jpg" }]
+          }
+        ]
+      })
+    ).toEqual({
+      pictures: [
+        {
+          urlPre: "https://sns-webpic-qc.xhscdn.com/pre.jpg",
+          url_pre: "https://sns-webpic-qc.xhscdn.com/pre.jpg",
+          infoList: [
+            {
+              imageScene: "WB_DFT",
+              image_scene: "WB_DFT",
+              url: "https://example.com/d.jpg"
+            }
+          ],
+          info_list: [
+            {
+              imageScene: "WB_DFT",
+              image_scene: "WB_DFT",
+              url: "https://example.com/d.jpg"
+            }
+          ]
+        }
+      ]
+    })
+  })
+
+  it("comment/page 评论对象 camelCase 补为 snake_case", () => {
+    const normalized = normalizeXhsApiKeys({
+      comments: [
+        {
+          id: "c1",
+          content: "test",
+          likeCount: 3,
+          createTime: 1744262400000,
+          ipLocation: "北京",
+          userInfo: { userId: "u1", nickname: "昵称" },
+          subCommentCount: 2,
+          targetComment: { id: "t1", content: "reply target" }
+        }
+      ],
+      hasMore: false
+    }) as {
+      comments: Array<Record<string, unknown>>
+      has_more: boolean
+    }
+
+    const comment = normalized.comments[0]
+    expect(comment.like_count).toBe(3)
+    expect(comment.create_time).toBe(1744262400000)
+    expect(comment.ip_location).toBe("北京")
+    expect(comment.sub_comment_count).toBe(2)
+    expect(normalized.has_more).toBe(false)
+
+    const userInfo = comment.user_info as Record<string, unknown>
+    expect(userInfo.user_id).toBe("u1")
+    expect(userInfo.nickname).toBe("昵称")
+
+    const target = comment.target_comment as Record<string, unknown>
+    expect(target.id).toBe("t1")
+  })
 })
 
 describe("normalizeFeedListPayload", () => {

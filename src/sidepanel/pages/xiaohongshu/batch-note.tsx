@@ -12,6 +12,7 @@ import {
   useNoteBatchCollectEnabled
 } from "~features/xiaohongshu/use-note-batch-enabled"
 import { FeishuSyncPanel } from "~sidepanel/components/feishu-sync-panel"
+import { BatchRecordsTable } from "~sidepanel/components/batch-records-table"
 import { openExtensionOptions } from "~shared/messaging"
 import { getCurrentTask, runTask } from "~sidepanel/store/task"
 import { exportCsv } from "~sidepanel/utils/export"
@@ -296,30 +297,7 @@ export function BatchNotePage({ initialState }: Props) {
       )}
 
       {records.length > 0 && (
-        <div style={{ overflow: "auto", maxHeight: 360, border: "1px solid #e5e7eb", marginTop: 12 }}>
-          <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                {NOTE_COLUMNS.filter((c) => c.default).map((col) => (
-                  <th key={col.key} style={thStyle}>
-                    {col.name}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {records.slice(0, 50).map((row, index) => (
-                <tr key={index}>
-                  {NOTE_COLUMNS.filter((c) => c.default).map((col) => (
-                    <td key={col.key} style={tdStyle}>
-                      {String(row[col.key] ?? "")}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <BatchRecordsTable columns={NOTE_COLUMNS} records={records} />
       )}
     </div>
   )
@@ -355,20 +333,4 @@ const primaryBtn: React.CSSProperties = {
   background: "#ff2442",
   color: "#fff",
   cursor: "pointer"
-}
-
-const thStyle: React.CSSProperties = {
-  padding: 8,
-  background: "#f9fafb",
-  borderBottom: "1px solid #e5e7eb",
-  textAlign: "left"
-}
-
-const tdStyle: React.CSSProperties = {
-  padding: 8,
-  borderBottom: "1px solid #f3f4f6",
-  maxWidth: 160,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap"
 }

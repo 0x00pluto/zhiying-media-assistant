@@ -1,4 +1,10 @@
 import { parseFeishuNumber } from "~features/feishu/field-mapper"
+import {
+  getCommentIpLocation,
+  getCommentLikeCount,
+  getCommentPictureUrls,
+  getCommentUserInfo
+} from "~features/xiaohongshu/collectors/comment-api-helpers"
 import type { ColumnDef } from "~shared/columns/types"
 
 const categories = {
@@ -15,7 +21,7 @@ function getHostname() {
 }
 
 function getUserInfo(data: Record<string, unknown>) {
-  return data.user_info as Record<string, unknown> | undefined
+  return getCommentUserInfo(data)
 }
 
 function parseCount(value: unknown) {
@@ -27,15 +33,6 @@ function parseTimestamp(value: unknown) {
   const num = Number(value)
   if (Number.isNaN(num)) return undefined
   return num < 1e12 ? num * 1000 : num
-}
-
-function getImageUrls(data: Record<string, unknown>) {
-  const pictures = data.pictures as Array<Record<string, unknown>> | undefined
-  if (!pictures?.length) return undefined
-  return pictures
-    .map((item) => item.url || item.url_default || item.url_pre)
-    .filter(Boolean)
-    .join("\n")
 }
 
 export const COMMENT_COLUMNS: ColumnDef[] = [
@@ -62,7 +59,7 @@ export const COMMENT_COLUMNS: ColumnDef[] = [
     default: true,
     apis: ["comment", "sub_comment"],
     feishu: { type: 17, file_extension: "jpg" },
-    handle: ({ data }) => getImageUrls(data)
+    handle: ({ data }) => getCommentPictureUrls(data)
   },
   {
     name: "点赞量",
@@ -71,7 +68,7 @@ export const COMMENT_COLUMNS: ColumnDef[] = [
     default: true,
     apis: ["comment", "sub_comment"],
     feishu: { type: 2, property: { formatter: "1,000" } },
-    handle: ({ data }) => parseCount(data.like_count)
+    handle: ({ data }) => parseCount(getCommentLikeCount(data))
   },
   {
     name: "评论时间",
@@ -88,7 +85,7 @@ export const COMMENT_COLUMNS: ColumnDef[] = [
     category: categories.comment,
     default: true,
     apis: ["comment", "sub_comment"],
-    handle: ({ data }) => data.ip_location
+    handle: ({ data }) => getCommentIpLocation(data)
   },
   {
     name: "子评论数",

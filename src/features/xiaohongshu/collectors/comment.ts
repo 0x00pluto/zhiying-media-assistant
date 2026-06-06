@@ -2,7 +2,9 @@ import { fetchComments, fetchSubComments } from "~features/xiaohongshu/api/clien
 import { parseNoteUrl, sleep } from "~features/xiaohongshu/api/parsers"
 import {
   COMMENT_COLLECT_INTERVAL,
+  COMMENT_FETCH_PARAMS,
   formatCommentRequestError,
+  getCommentUserInfo,
   getEmbeddedSubComments,
   isRetryableCommentError,
   needsSubCommentFetch,
@@ -36,9 +38,12 @@ const META_ROOT_COMMENT_ID = "_root_comment_id"
 const META_TARGET_COMMENT_ID = "_target_comment_id"
 
 function toRootCommentData(source: Record<string, unknown>) {
-  const userInfo = source.user_info as Record<string, unknown> | undefined
+  const userInfo = getCommentUserInfo(source)
   if (userInfo) {
-    return source
+    return {
+      ...source,
+      user_info: userInfo
+    }
   }
 
   return {
@@ -52,7 +57,7 @@ function toRootCommentData(source: Record<string, unknown>) {
 }
 
 function toReplyCommentData(raw: Record<string, unknown>) {
-  const userInfo = raw.user_info as Record<string, unknown> | undefined
+  const userInfo = getCommentUserInfo(raw)
   if (!userInfo && raw["user.user_id"] !== undefined) {
     return raw
   }
@@ -359,7 +364,7 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
               num: 10,
               cursor,
               top_comment_id: "",
-              image_formats: "jpg,webp,avif",
+              ...COMMENT_FETCH_PARAMS,
               xsec_token: token
             }),
           `sub_comment:${rootCommentId}`,
@@ -416,7 +421,7 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
               note_id: note.id,
               cursor,
               top_comment_id: "",
-              image_formats: "jpg,webp,avif",
+              ...COMMENT_FETCH_PARAMS,
               xsec_token: xsecToken
             }),
           `comment_page:${note.id}:${cursor || "first"}`,
