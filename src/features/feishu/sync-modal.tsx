@@ -1,5 +1,5 @@
 import {
-  Button,
+  AutoComplete,
   Checkbox,
   Form,
   Input,
@@ -9,21 +9,24 @@ import {
   Switch,
   message
 } from "antd"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import type { ColumnDef } from "~shared/columns/types"
-import { createTab, openExtensionOptions } from "~shared/messaging"
+import { openExtensionOptions } from "~shared/messaging"
 
-import { resolveBitableRef } from "./bitable"
+import { resolveBitableRef, resolveBitableTargetDisplay } from "./bitable"
 import { FeishuFieldPicker } from "./feishu-field-picker"
 import { getFeishuModalProps } from "./modal-utils"
 import {
+  type FeishuBitableTarget,
+  formatBitableTargetLabel,
+  getTargetUrl,
   loadFeishuQuickSync,
-  loadFeishuUrlHistories,
+  loadFeishuTargetHistories,
   mergeFieldOptions,
   saveFeishuQuickSync,
-  saveFeishuUrl,
-  saveFeishuUrlHistory
+  saveFeishuTargetHistory,
+  saveFeishuUrl
 } from "./sync-prefs"
 import { syncRecordsToFeishu, type FieldOptions } from "./sync-records"
 
@@ -45,6 +48,8 @@ type FormValues = {
   remark?: string
 }
 
+type TargetDisplayStatus = "empty" | "resolving" | "ready" | "error"
+
 export function shouldSkipFeishuDialog(skipDialogKey?: string) {
   if (!skipDialogKey) return false
   return sessionStorage.getItem(skipDialogKey) === "1"
@@ -55,23 +60,117 @@ export function setSkipFeishuDialog(skipDialogKey: string, skip: boolean) {
   else sessionStorage.removeItem(skipDialogKey)
 }
 
+function historyOptionLabel(item: FeishuBitableTarget) {
+  if (item.appName && item.tableName) {
+    return formatBitableTargetLabel(item)
+  }
+  return item.url
+}
+
+function truncateUrlHint(url: string, max = 24) {
+  try {
+    const parsed = new URL(url)
+    const hint = parsed.pathname.split("/").filter(Boolean).slice(-2).join("/")
+    if (hint.length <= max) return hint
+    return `${hint.slice(0, max)}…`
+  } catch {
+    return url.length > max ? `${url.slice(0, max)}…` : url
+  }
+}
+
+function mergeHistoriesWithSavedTarget(
+  history: FeishuBitableTarget[],
+  savedTarget?: FeishuBitableTarget
+) {
+  if (!savedTarget?.url) return history
+  if (history.some((item) => item.url === savedTarget.url)) return history
+  return [savedTarget, ...history]
+}
+
+function buildUrlOptions(histories: FeishuBitableTarget[]) {
+  const labels = histories.map(historyOptionLabel)
+  const labelCounts = new Map<string, number>()
+  for (const label of labels) {
+    labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1)
+  }
+
+  return histories.map((item) => {
+    const baseLabel = historyOptionLabel(item)
+    const label =
+      (labelCounts.get(baseLabel) ?? 0) > 1
+        ? `${baseLabel}（${truncateUrlHint(item.url)}）`
+        : baseLabel
+    return { value: item.url, label }
+  })
+}
+
 export function FeishuSyncModal({
   open,
   onClose,
   columns,
   records,
-  storageKey = "qmc-quickSyncFeishu-default",
+  storageKey = "qmc-feishu-target:default",
   skipDialogKey,
   defaultFieldOptions
 }: FeishuSyncModalProps) {
   const [form] = Form.useForm<FormValues>()
   const [loading, setLoading] = useState(false)
-  const [histories, setHistories] = useState<string[]>([])
+  const [histories, setHistories] = useState<FeishuBitableTarget[]>([])
   const [prefsReady, setPrefsReady] = useState(false)
+  const [displayStatus, setDisplayStatus] =
+    useState<TargetDisplayStatus>("empty")
+  const [displayLabel, setDisplayLabel] = useState("")
+  const [urlDropdownOpen, setUrlDropdownOpen] = useState(false)
+  const resolveRequestId = useRef(0)
+  const lastResolvedUrl = useRef("")
+
+  const resolveTargetDisplay = useCallback(
+    async (url: string, cachedTarget?: FeishuBitableTarget) => {
+      const trimmed = url.trim()
+      if (!trimmed) {
+        setDisplayStatus("empty")
+        setDisplayLabel("")
+        lastResolvedUrl.current = ""
+        return
+      }
+
+      const hasCachedLabel = Boolean(
+        cachedTarget?.appName && cachedTarget?.tableName
+      )
+      if (hasCachedLabel && cachedTarget) {
+        setDisplayStatus("ready")
+        setDisplayLabel(formatBitableTargetLabel(cachedTarget))
+      } else {
+        setDisplayStatus("resolving")
+        setDisplayLabel("正在识别表格…")
+      }
+
+      const requestId = ++resolveRequestId.current
+      try {
+        const resolved = await resolveBitableTargetDisplay(trimmed)
+        if (requestId !== resolveRequestId.current) return
+
+        lastResolvedUrl.current = trimmed
+        setDisplayStatus("ready")
+        setDisplayLabel(`${resolved.appName} · ${resolved.tableName}`)
+      } catch (error) {
+        if (requestId !== resolveRequestId.current) return
+        lastResolvedUrl.current = trimmed
+        setDisplayStatus("error")
+        setDisplayLabel((error as Error).message)
+      }
+    },
+    []
+  )
 
   useEffect(() => {
     if (!open) {
       setPrefsReady(false)
+      setDisplayStatus("empty")
+      setDisplayLabel("")
+      setUrlDropdownOpen(false)
+      lastResolvedUrl.current = ""
+      resolveRequestId.current += 1
       return
     }
 
@@ -79,11 +178,15 @@ export function FeishuSyncModal({
 
     void (async () => {
       const saved = await loadFeishuQuickSync(storageKey)
-      const history = await loadFeishuUrlHistories(storageKey)
+      const history = mergeHistoriesWithSavedTarget(
+        await loadFeishuTargetHistories(storageKey),
+        saved?.target
+      )
       if (cancelled) return
 
+      const url = getTargetUrl(saved) || history[0]?.url || ""
       form.setFieldsValue({
-        url: saved?.url || history[0] || "",
+        url,
         mode: saved?.mode || "merge",
         shouldUploadMedia: saved?.shouldUploadMedia ?? true,
         fieldOptions: mergeFieldOptions(
@@ -94,12 +197,43 @@ export function FeishuSyncModal({
       })
       setHistories(history)
       setPrefsReady(true)
+
+      if (url) {
+        await resolveTargetDisplay(url, saved?.target)
+      }
     })()
 
     return () => {
       cancelled = true
     }
-  }, [open, columns, defaultFieldOptions, form, storageKey])
+  }, [
+    open,
+    columns,
+    defaultFieldOptions,
+    form,
+    resolveTargetDisplay,
+    storageKey
+  ])
+
+  const handleUrlBlur = async () => {
+    const url = form.getFieldValue("url")?.trim() || ""
+    if (!url) {
+      setDisplayStatus("empty")
+      setDisplayLabel("")
+      lastResolvedUrl.current = ""
+      return
+    }
+    if (url === lastResolvedUrl.current && displayStatus === "ready") {
+      return
+    }
+    await resolveTargetDisplay(url)
+  }
+
+  const handleHistorySelect = async (url: string) => {
+    form.setFieldValue("url", url)
+    const cached = histories.find((item) => item.url === url)
+    await resolveTargetDisplay(url, cached)
+  }
 
   const handleSync = async (values: FormValues) => {
     if (!records.length) {
@@ -128,16 +262,27 @@ export function FeishuSyncModal({
       )
 
       const savedUrl = ref.normalizedUrl || url
-      await saveFeishuQuickSync(storageKey, {
+      const display = await resolveBitableTargetDisplay(savedUrl)
+      const target: FeishuBitableTarget = {
         url: savedUrl,
+        appName: display.appName,
+        tableName: display.tableName,
+        resolvedAt: Date.now()
+      }
+
+      await saveFeishuQuickSync(storageKey, {
+        target,
         mode: values.mode,
         shouldUploadMedia: values.shouldUploadMedia,
         fieldOptions: values.fieldOptions,
         remark: values.remark
       })
-      await saveFeishuUrlHistory(storageKey, savedUrl)
-      setHistories(await loadFeishuUrlHistories(storageKey))
+      await saveFeishuTargetHistory(storageKey, target)
+      setHistories(await loadFeishuTargetHistories(storageKey))
       form.setFieldValue("url", savedUrl)
+      lastResolvedUrl.current = savedUrl
+      setDisplayStatus("ready")
+      setDisplayLabel(formatBitableTargetLabel(target))
 
       const parts = []
       if (result.created) parts.push(`新增 ${result.created} 条`)
@@ -159,6 +304,15 @@ export function FeishuSyncModal({
   }
 
   const uniqueColumnName = columns[0]?.name || "主键"
+  const spinTip = loading ? "正在同步中..." : !prefsReady ? "加载中..." : undefined
+
+  const urlOptions = useMemo(() => buildUrlOptions(histories), [histories])
+
+  const subtitleStyle: React.CSSProperties = {
+    margin: "4px 0 0 25%",
+    fontSize: 12,
+    lineHeight: "18px"
+  }
 
   return (
     <Modal
@@ -205,36 +359,54 @@ export function FeishuSyncModal({
           <OkBtn />
         </>
       )}>
-      <Spin spinning={loading || !prefsReady} tip="正在同步中...">
+      <Spin spinning={loading || !prefsReady} tip={spinTip}>
         <Form form={form} layout="horizontal" labelCol={{ span: 6 }} style={{ marginTop: 16 }}>
           <Form.Item
             label="表格链接"
             required
-            style={{ marginBottom: 8 }}>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Form.Item
-                name="url"
-                noStyle
-                rules={[{ required: true, message: "请填写飞书多维表格链接" }]}>
-                <Input
-                  placeholder="https://xxx.feishu.cn/base/... 或 /wiki/...?table=..."
-                  list="qmc-feishu-url-history"
-                />
-              </Form.Item>
-              <Button
-                type="primary"
-                onClick={() => {
-                  void createTab({ url: "https://www.feishu.cn/base" })
-                }}>
-                + 新建
-              </Button>
-            </div>
+            style={{ marginBottom: displayStatus === "empty" ? 8 : 0 }}>
+            <Form.Item
+              name="url"
+              noStyle
+              rules={[{ required: true, message: "请填写飞书多维表格链接" }]}>
+              <AutoComplete
+                style={{ width: "100%" }}
+                options={urlOptions}
+                open={histories.length > 0 ? urlDropdownOpen : false}
+                placeholder="https://xxx.feishu.cn/base/... 或 /wiki/...?table=..."
+                filterOption={false}
+                onOpenChange={setUrlDropdownOpen}
+                onFocus={() => {
+                  if (histories.length) setUrlDropdownOpen(true)
+                }}
+                onBlur={() => {
+                  setUrlDropdownOpen(false)
+                  void handleUrlBlur()
+                }}
+                onSelect={(value) => {
+                  setUrlDropdownOpen(false)
+                  void handleHistorySelect(String(value))
+                }}
+              />
+            </Form.Item>
           </Form.Item>
-          <datalist id="qmc-feishu-url-history">
-            {histories.map((url) => (
-              <option key={url} value={url} />
-            ))}
-          </datalist>
+          {displayStatus !== "empty" ? (
+            <div
+              style={{
+                ...subtitleStyle,
+                color:
+                  displayStatus === "error"
+                    ? "#ff4d4f"
+                    : displayStatus === "resolving"
+                      ? "#999"
+                      : "#666",
+                marginBottom: 8
+              }}>
+              {displayStatus === "error"
+                ? "无法识别该链接，请检查格式或飞书配置"
+                : displayLabel}
+            </div>
+          ) : null}
           <div
             style={{
               margin: "-8px 0 16px 25%",

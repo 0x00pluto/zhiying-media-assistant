@@ -198,6 +198,11 @@ export type ResolvedBitableRef = BitableRef & {
   normalizedUrl?: string
 }
 
+export type ResolvedBitableTarget = ResolvedBitableRef & {
+  appName: string
+  tableName: string
+}
+
 export function parseBitableUrlInput(url: string): BitableUrlInput | null {
   try {
     const parsed = new URL(url.trim())
@@ -230,9 +235,13 @@ export function parseBitableUrl(url: string): BitableRef | null {
   return { appToken: input.token, tableId }
 }
 
-async function getWikiBitableAppToken(wikiToken: string) {
+async function getWikiBitableNode(wikiToken: string) {
   const data = await feishuRequest<{
-    node?: { obj_type?: string; obj_token?: string }
+    node?: {
+      obj_type?: string
+      obj_token?: string
+      title?: string
+    }
   }>(
     `/open-apis/wiki/v2/spaces/get_node?token=${encodeURIComponent(wikiToken)}`
   )
@@ -241,7 +250,17 @@ async function getWikiBitableAppToken(wikiToken: string) {
   if (!node || node.obj_type !== "bitable" || !node.obj_token) {
     throw new Error("当前 Wiki 链接不是多维表格，或应用无权访问该知识库节点")
   }
-  return node.obj_token
+  return {
+    appToken: node.obj_token,
+    wikiTitle: node.title?.trim() || ""
+  }
+}
+
+export async function getBitableApp(appToken: string) {
+  const data = await feishuRequest<{ app?: { name?: string } }>(
+    `/open-apis/bitable/v1/apps/${appToken}`
+  )
+  return data.app?.name?.trim() || "未命名多维表格"
 }
 
 async function listBitableTables(appToken: string) {
@@ -276,17 +295,25 @@ function resolveTableId(
   )
 }
 
-/** 解析 /base/ 或 /wiki/ 链接，Wiki 需调用飞书 API 换取 appToken */
-export async function resolveBitableRef(url: string): Promise<ResolvedBitableRef> {
+/** 解析链接并返回文档名、数据表名，供同步弹窗二次确认 */
+export async function resolveBitableTargetDisplay(
+  url: string
+): Promise<ResolvedBitableTarget> {
   const input = parseBitableUrlInput(url)
   if (!input) {
     throw new Error("请输入有效的飞书多维表格链接（支持 /base/ 与 /wiki/ 格式）")
   }
 
-  const appToken =
-    input.type === "base"
-      ? input.token
-      : await getWikiBitableAppToken(input.token)
+  let appToken: string
+  let wikiTitle = ""
+
+  if (input.type === "base") {
+    appToken = input.token
+  } else {
+    const wikiNode = await getWikiBitableNode(input.token)
+    appToken = wikiNode.appToken
+    wikiTitle = wikiNode.wikiTitle
+  }
 
   const tables = await listBitableTables(appToken)
   if (!tables.length) {
@@ -294,10 +321,29 @@ export async function resolveBitableRef(url: string): Promise<ResolvedBitableRef
   }
 
   const tableId = resolveTableId(tables, input.url)
+  const matchedTable = tables.find((table) => table.table_id === tableId)
+  const tableName = matchedTable?.name?.trim() || "未命名数据表"
+
+  let appName = wikiTitle
+  if (!appName) {
+    appName = await getBitableApp(appToken)
+  }
 
   return {
     appToken,
     tableId,
-    normalizedUrl: input.url.href
+    normalizedUrl: input.url.href,
+    appName,
+    tableName
+  }
+}
+
+/** 解析 /base/ 或 /wiki/ 链接，Wiki 需调用飞书 API 换取 appToken */
+export async function resolveBitableRef(url: string): Promise<ResolvedBitableRef> {
+  const resolved = await resolveBitableTargetDisplay(url)
+  return {
+    appToken: resolved.appToken,
+    tableId: resolved.tableId,
+    normalizedUrl: resolved.normalizedUrl
   }
 }

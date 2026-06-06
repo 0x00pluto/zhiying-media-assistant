@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { useState } from "react"
 
 import { FeishuSyncModal } from "~features/feishu/sync-modal"
+import { FEISHU_TARGET_KEYS } from "~features/feishu/sync-prefs"
 import type { FieldOptions } from "~features/feishu/sync-records"
 import type { ColumnDef } from "~shared/columns/types"
 
@@ -19,11 +20,13 @@ export function FeishuSyncPanel({
   columns,
   records,
   fieldOptions,
-  storageKey = "qmc-quickSyncFeishu-batch",
-  skipDialogKey = "qmc-skipFeishuDialog-batch",
+  storageKey = FEISHU_TARGET_KEYS.batchNote,
+  skipDialogKey,
   extraActions
 }: Props) {
   const [open, setOpen] = useState(false)
+  const resolvedSkipKey =
+    skipDialogKey ?? `qmc-skipFeishuDialog:${storageKey}`
 
   return (
     <>
@@ -49,7 +52,7 @@ export function FeishuSyncPanel({
         columns={columns}
         records={records}
         storageKey={storageKey}
-        skipDialogKey={skipDialogKey}
+        skipDialogKey={resolvedSkipKey}
         defaultFieldOptions={fieldOptions}
       />
     </>

@@ -22,7 +22,7 @@ const SCENE_GUIDES = [
   },
   {
     scene: "博主主页",
-    buttons: "采集博主信息、采集博主笔记",
+    buttons: "采集本页笔记",
     icon: <UserOutlined />
   },
   {

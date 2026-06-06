@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 
 import { BLOGGER_COLUMNS } from "~features/xiaohongshu/columns/blogger"
+import { FEISHU_TARGET_KEYS } from "~features/feishu/sync-prefs"
 import { FeishuSyncPanel } from "~sidepanel/components/feishu-sync-panel"
 import { clearTask, getCurrentTask, runTask } from "~sidepanel/store/task"
 import { copyToClipboard, exportCsv } from "~sidepanel/utils/export"
@@ -155,7 +156,11 @@ export function BatchBloggerPage({ initialState }: Props) {
       </p>
 
       {records.length > 0 && (
-        <FeishuSyncPanel columns={BLOGGER_COLUMNS} records={records} />
+        <FeishuSyncPanel
+          columns={BLOGGER_COLUMNS}
+          records={records}
+          storageKey={FEISHU_TARGET_KEYS.batchBlogger}
+        />
       )}
 
       {records.length > 0 && (

@@ -2,6 +2,7 @@ import { Button, Form, Input, InputNumber, Switch, Typography } from "antd"
 import { useEffect, useMemo, useState } from "react"
 
 import { FeishuFieldPicker } from "~features/feishu/feishu-field-picker"
+import { FEISHU_TARGET_KEYS } from "~features/feishu/sync-prefs"
 import type { FieldOptions } from "~features/feishu/sync-records"
 import { COMMENT_COLUMNS } from "~features/xiaohongshu/columns/comment"
 import { CommentCollector } from "~features/xiaohongshu/tasks/comment"
@@ -297,8 +298,7 @@ export function BatchCommentPage({ initialState }: Props) {
           columns={COMMENT_COLUMNS}
           records={records}
           fieldOptions={fieldOptions}
-          storageKey="qmc-quickSyncFeishu-comment"
-          skipDialogKey="qmc-skipFeishuDialog-comment"
+          storageKey={FEISHU_TARGET_KEYS.batchComment}
           extraActions={
             <Button
               onClick={() =>

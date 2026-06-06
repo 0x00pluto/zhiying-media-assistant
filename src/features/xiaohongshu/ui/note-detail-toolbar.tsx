@@ -7,6 +7,9 @@ import {
 } from "~features/feishu/sync-modal"
 import { resolveBitableRef } from "~features/feishu/bitable"
 import {
+  FEISHU_TARGET_KEYS,
+  formatBitableTargetLabel,
+  getTargetUrl,
   loadFeishuQuickSync,
   mergeFieldOptions
 } from "~features/feishu/sync-prefs"
@@ -23,8 +26,8 @@ import { downloadConfigStorage } from "~features/xiaohongshu/storage/download-co
 import { qmcCsuiButtonStyle } from "~features/xiaohongshu/ui/csui-theme"
 import { downloadFile, navigateSidepanel } from "~shared/messaging"
 
-const FEISHU_STORAGE_KEY = "qmc-quickSyncFeishu-note"
-const FEISHU_SKIP_DIALOG_KEY = "qmc-skipFeishuDialog-note"
+const FEISHU_STORAGE_KEY = FEISHU_TARGET_KEYS.noteDetail
+const FEISHU_SKIP_DIALOG_KEY = "qmc-skipFeishuDialog:note-detail"
 
 function applyNamingTemplate(
   template: string,
@@ -110,7 +113,8 @@ export function NoteDetailToolbar({ noteId: propNoteId }: Props) {
 
       if (shouldSkipFeishuDialog(FEISHU_SKIP_DIALOG_KEY)) {
         const saved = await loadFeishuQuickSync(FEISHU_STORAGE_KEY)
-        if (!saved?.url) {
+        const targetUrl = getTargetUrl(saved)
+        if (!targetUrl) {
           setFeishuRecords(records)
           setFeishuOpen(true)
           return
@@ -119,7 +123,7 @@ export function NoteDetailToolbar({ noteId: propNoteId }: Props) {
         setFeishuSyncing(true)
         const hide = message.loading("正在同步飞书，请稍候...", 0)
         try {
-          const ref = await resolveBitableRef(saved.url)
+          const ref = await resolveBitableRef(targetUrl)
           const result = await syncRecordsToFeishu(
             { appToken: ref.appToken, tableId: ref.tableId },
             records,
@@ -142,6 +146,14 @@ export function NoteDetailToolbar({ noteId: propNoteId }: Props) {
           if (result.updated) parts.push(`更新 ${result.updated} 条`)
           message.success(
             parts.length ? `同步成功，${parts.join("，")}` : "同步完成"
+          )
+        } catch (error) {
+          const label = saved?.target
+            ? formatBitableTargetLabel(saved.target)
+            : targetUrl
+          const errMsg = (error as Error).message
+          message.error(
+            label ? `同步到「${label}」失败：${errMsg}` : errMsg
           )
         } finally {
           hide()

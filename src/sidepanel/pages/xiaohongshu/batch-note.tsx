@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 
 import { NOTE_COLUMNS } from "~features/xiaohongshu/columns/note"
 import type { NoteCollector } from "~features/xiaohongshu/collectors/note"
+import { FEISHU_TARGET_KEYS } from "~features/feishu/sync-prefs"
 import {
   isXhsNoteId,
   parseNoteUrl
@@ -288,6 +289,7 @@ export function BatchNotePage({ initialState }: Props) {
         <FeishuSyncPanel
           columns={NOTE_COLUMNS}
           records={records}
+          storageKey={FEISHU_TARGET_KEYS.batchNote}
           extraActions={
             <Button onClick={() => exportCsv(NOTE_COLUMNS, records, "小红书笔记")}>
               导出 CSV
