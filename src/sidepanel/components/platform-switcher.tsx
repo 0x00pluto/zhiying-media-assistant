@@ -13,6 +13,7 @@ type Props = {
 
 export function PlatformSwitcher({ title = "其他平台" }: Props) {
   const others = PLATFORMS.filter((p) => p.code !== CURRENT_PLATFORM)
+  if (!others.length) return null
 
   const handleSwitch = async (origin: string, name: string) => {
     await createTab({ url: origin, active: true })

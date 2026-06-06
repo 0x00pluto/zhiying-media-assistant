@@ -27,22 +27,9 @@ import {
 // matches 必须为字面量数组，Plasmo 才能在构建时写入 manifest（不可从常量 spread）
 export const config: PlasmoCSConfig = {
   matches: [
-    "*://b23.tv/*",
-    "*://live.kuaishou.com/*",
     "*://pgy.xiaohongshu.com/*",
-    "*://search.bilibili.com/*",
-    "*://space.bilibili.com/*",
-    "*://v.douyin.com/*",
-    "*://v.kuaishou.com/*",
-    "*://vt.tiktok.com/*",
-    "*://www.bilibili.com/*",
-    "*://www.douyin.com/*",
-    "*://www.iesdouyin.com/*",
-    "*://www.kuaishou.com/*",
     "*://www.rednote.com/*",
-    "*://www.tiktok.com/*",
     "*://www.xiaohongshu.com/*",
-    "*://www.xingtu.cn/*",
     "*://xhslink.com/*"
   ],
   run_at: "document_start"

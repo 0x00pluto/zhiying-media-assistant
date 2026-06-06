@@ -40,13 +40,16 @@
       "downloads",
       "storage",
       "scripting",
-      "cookies",
       "alarms",
       "sidePanel"
     ],
     "host_permissions": [
-      "<all_urls>",
-      "https://open.feishu.cn/*"
+      "https://open.feishu.cn/*",
+      "*://*.xiaohongshu.com/*",
+      "*://*.rednote.com/*",
+      "*://*.xhscdn.com/*",
+      "http://*.xhscdn.com/*",
+      "*://xhslink.com/*"
     ],
     "action": {},
     "commands": {
@@ -67,22 +70,9 @@
           "platforms/*.svg"
         ],
         "matches": [
-          "*://b23.tv/*",
-          "*://live.kuaishou.com/*",
           "*://pgy.xiaohongshu.com/*",
-          "*://search.bilibili.com/*",
-          "*://space.bilibili.com/*",
-          "*://v.douyin.com/*",
-          "*://v.kuaishou.com/*",
-          "*://vt.tiktok.com/*",
-          "*://www.bilibili.com/*",
-          "*://www.douyin.com/*",
-          "*://www.iesdouyin.com/*",
-          "*://www.kuaishou.com/*",
           "*://www.rednote.com/*",
-          "*://www.tiktok.com/*",
           "*://www.xiaohongshu.com/*",
-          "*://www.xingtu.cn/*",
           "*://xhslink.com/*"
         ]
       }
