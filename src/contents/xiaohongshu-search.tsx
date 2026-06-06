@@ -1,56 +1,47 @@
 import type { PlasmoCSConfig, PlasmoGetInlineAnchor } from "plasmo"
-import { App, ConfigProvider } from "antd"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { SearchPageToolbar } from "~features/xiaohongshu/ui/search-page-toolbar"
+import { CsuiRoot } from "~features/xiaohongshu/ui/csui-root"
+import { createPlasmoCsuiStyleGetter } from "~features/xiaohongshu/ui/csui-theme"
+import { findSearchAnchorElement } from "~features/xiaohongshu/ui/search-toolbar-anchor"
+import {
+  createMountPoller,
+  isSearchMountReady,
+  useCsuiMountVisible
+} from "~features/xiaohongshu/utils/csui-mount-ready"
 import { parseSearchKeyword } from "~features/xiaohongshu/utils/parse-search-keyword"
+import {
+  isSearchResultPage,
+  useXhsSpaHref
+} from "~features/xiaohongshu/utils/spa-location"
+
+import antdResetCss from "data-text:antd/dist/reset.css"
 
 export const config: PlasmoCSConfig = {
-  matches: [
-    "*://www.xiaohongshu.com/search_result*",
-    "*://www.rednote.com/search_result*"
-  ],
+  matches: ["*://www.xiaohongshu.com/*", "*://www.rednote.com/*"],
   run_at: "document_idle"
 }
 
-const SEARCH_ANCHOR_SELECTORS = [
-  "div.ai-feeds-page",
-  "div.feeds-page",
-  ".search-layout .content-container",
-  ".content-container",
-  ".search-layout"
-]
+export const getStyle = createPlasmoCsuiStyleGetter(antdResetCss)
 
-async function wait(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-async function findSearchAnchor() {
-  for (let i = 0; i < 40; i++) {
-    for (const selector of SEARCH_ANCHOR_SELECTORS) {
-      const element = document.querySelector(selector)
-      if (element) return element
-    }
-    await wait(250)
-  }
-  return null
-}
-
-export const getInlineAnchor: PlasmoGetInlineAnchor = async () => {
-  const element = (await findSearchAnchor()) || document.body
-
-  return {
-    element,
+export const getInlineAnchor: PlasmoGetInlineAnchor = async () =>
+  createMountPoller({
+    isPageMatch: () => isSearchResultPage() && Boolean(parseSearchKeyword()),
+    findAnchor: findSearchAnchorElement,
     insertPosition: "afterbegin"
-  }
-}
+  })
 
 function SearchPageCsui() {
-  const [keyword, setKeyword] = useState(() => parseSearchKeyword())
+  const href = useXhsSpaHref()
+  const keyword = useMemo(() => parseSearchKeyword(href), [href])
   const [tab, setTab] = useState("all")
+  const onSearchPage = isSearchResultPage(href)
+  const checkReady = useCallback(() => isSearchMountReady(), [])
+  const visible = useCsuiMountVisible(checkReady)
 
   useEffect(() => {
-    setKeyword(parseSearchKeyword())
+    if (!onSearchPage) return
 
     const syncTab = () => {
       const active = document.querySelector(
@@ -93,22 +84,25 @@ function SearchPageCsui() {
       tabs.forEach((el) => el.removeEventListener("click", onClick))
       observer.disconnect()
     }
-  }, [])
+  }, [href, onSearchPage])
 
-  if (!keyword) return null
+  if (!onSearchPage || !keyword || !visible) return null
 
   return (
-    <ConfigProvider
-      theme={{
-        token: {
-          colorPrimary: "#ff2442",
-          borderRadius: 8
-        }
-      }}>
-      <App>
-        <SearchPageToolbar keyword={keyword} tab={tab} />
-      </App>
-    </ConfigProvider>
+    <CsuiRoot>
+      <div
+        style={{
+          position: "relative",
+          zIndex: 0,
+          pointerEvents: "none",
+          marginBottom: 12,
+          paddingTop: 4
+        }}>
+        <div style={{ pointerEvents: "auto" }}>
+          <SearchPageToolbar keyword={keyword} tab={tab} />
+        </div>
+      </div>
+    </CsuiRoot>
   )
 }
 

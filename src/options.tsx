@@ -223,7 +223,7 @@ function OptionsPage() {
                 <strong>开启笔记批量采集</strong>
                 <br />
                 <span style={{ color: "#64748b", fontSize: 13 }}>
-                  含：侧边栏批量笔记、本页采集、关键词笔记、博主笔记列表。默认关闭。
+                  含：侧边栏批量笔记、本页采集、博主笔记列表。默认关闭。
                 </span>
               </span>
             </label>

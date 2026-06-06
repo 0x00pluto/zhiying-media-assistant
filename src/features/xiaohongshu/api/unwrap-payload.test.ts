@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   normalizeFeedListPayload,
+  normalizeXhsApiKeys,
   unwrapXhsResponsePayload
 } from "./unwrap-payload"
 
@@ -43,6 +44,38 @@ describe("unwrapXhsResponsePayload", () => {
 
   it("已解包 payload 原样返回", () => {
     expect(unwrapXhsResponsePayload(feedItemsPayload)).toEqual(feedItemsPayload)
+  })
+})
+
+describe("normalizeXhsApiKeys", () => {
+  it("将 comment/page 常见 camelCase 分页字段补为 snake_case", () => {
+    expect(
+      normalizeXhsApiKeys({
+        comments: [{ id: "1" }],
+        hasMore: true,
+        cursor: "abc",
+        xsecToken: "token-2"
+      })
+    ).toEqual({
+      comments: [{ id: "1" }],
+      hasMore: true,
+      has_more: true,
+      cursor: "abc",
+      xsecToken: "token-2",
+      xsec_token: "token-2"
+    })
+  })
+
+  it("已有 snake_case 时不覆盖", () => {
+    expect(
+      normalizeXhsApiKeys({
+        has_more: false,
+        hasMore: true
+      })
+    ).toEqual({
+      has_more: false,
+      hasMore: true
+    })
   })
 })
 

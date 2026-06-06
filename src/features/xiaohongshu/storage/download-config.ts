@@ -11,7 +11,7 @@ export type DownloadConfig = {
 const DEFAULT_CONFIG: DownloadConfig = {
   version: 4,
   conflictAction: "uniquify",
-  namingTemplate: "全媒采集助手/小红书/{博主昵称}/{笔记ID}/{发布时间}-{笔记标题}"
+  namingTemplate: "智赢媒体助手/小红书/{博主昵称}/{笔记ID}/{发布时间}-{笔记标题}"
 }
 
 export const downloadConfigStorage = {

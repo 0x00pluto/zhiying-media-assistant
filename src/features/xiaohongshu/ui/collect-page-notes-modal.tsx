@@ -17,6 +17,7 @@ import {
   useNoteBatchCollectEnabled
 } from "~features/xiaohongshu/use-note-batch-enabled"
 import { getFeishuModalProps } from "~features/feishu/modal-utils"
+import { QMC_CSUI_PRIMARY } from "~features/xiaohongshu/ui/csui-theme"
 import { getWindowValue, navigateSidepanel } from "~shared/messaging"
 
 export type PageCollectType = "explore" | "search" | "profile"
@@ -204,14 +205,14 @@ export function CollectPageNotesModal({ open, pageType, onClose }: Props) {
         style={{
           padding: 16,
           borderRadius: 12,
-          border: "1px solid rgba(255, 36, 66, 0.2)",
+          border: "1px solid rgba(22, 119, 255, 0.2)",
           background:
-            "linear-gradient(135deg, rgba(255,36,66,0.08), rgba(255,36,66,0.02))"
+            "linear-gradient(135deg, rgba(22, 119, 255, 0.08), rgba(22, 119, 255, 0.02))"
         }}>
         <p style={{ margin: 0, fontSize: 14, color: "#374151" }}>本页笔记检测</p>
         <p style={{ margin: "8px 0 0", fontSize: 13, color: "#6b7280" }}>
           检测到{" "}
-          <strong style={{ fontSize: 28, color: "#ff2442", lineHeight: 1 }}>
+          <strong style={{ fontSize: 28, color: QMC_CSUI_PRIMARY, lineHeight: 1 }}>
             {open ? count : getCollectiblePageNotesCount()}
           </strong>{" "}
           条笔记

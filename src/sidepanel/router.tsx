@@ -139,7 +139,7 @@ export function SidepanelRouter() {
 export function SidepanelHeader() {
   return (
     <header className="sidepanel-header">
-      <h1 className="sidepanel-header__title">全媒采集助手 - 小红书</h1>
+      <h1 className="sidepanel-header__title">智赢媒体助手 - 小红书</h1>
       <Button type="text" aria-label="设置" onClick={() => chrome.runtime.openOptionsPage()}>
         设置
       </Button>

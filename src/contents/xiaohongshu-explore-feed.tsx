@@ -1,38 +1,56 @@
 import type { PlasmoCSConfig, PlasmoGetInlineAnchor } from "plasmo"
-import { App, ConfigProvider } from "antd"
+import { useCallback } from "react"
 
 import { PageCollectToolbar } from "~features/xiaohongshu/ui/page-collect-toolbar"
+import { CsuiRoot } from "~features/xiaohongshu/ui/csui-root"
+import { createPlasmoCsuiStyleGetter } from "~features/xiaohongshu/ui/csui-theme"
+import {
+  createMountPoller,
+  isExploreFeedMountReady,
+  isElementLayoutReady,
+  useCsuiMountVisible
+} from "~features/xiaohongshu/utils/csui-mount-ready"
+import {
+  findExploreFeedAnchorElement,
+  isExploreFeedPage,
+  useXhsSpaHref
+} from "~features/xiaohongshu/utils/spa-location"
+
+import antdResetCss from "data-text:antd/dist/reset.css"
 
 export const config: PlasmoCSConfig = {
-  matches: [
-    "*://www.xiaohongshu.com/explore",
-    "*://www.rednote.com/explore"
-  ]
+  matches: ["*://www.xiaohongshu.com/*", "*://www.rednote.com/*"],
+  run_at: "document_idle"
 }
 
-export const getInlineAnchor: PlasmoGetInlineAnchor = async () => {
-  const element = document.querySelector("div.feeds-page > div.channel-container")
-  if (!element) return null
+export const getStyle = createPlasmoCsuiStyleGetter(antdResetCss)
 
-  return {
-    element,
-    insertPosition: "beforebegin"
-  }
-}
+export const getInlineAnchor: PlasmoGetInlineAnchor = async () =>
+  createMountPoller({
+    isPageMatch: isExploreFeedPage,
+    findAnchor: findExploreFeedAnchorElement,
+    insertPosition: "beforebegin",
+    isAnchorReady: (channel) => {
+      const firstTab =
+        channel.querySelector(".channel-list .channel") ||
+        channel.querySelector(".channel") ||
+        channel.firstElementChild
+      return isElementLayoutReady(firstTab)
+    }
+  })
 
 function ExploreFeedCsui() {
+  const href = useXhsSpaHref()
+  const onExploreFeed = isExploreFeedPage(href)
+  const checkReady = useCallback(() => isExploreFeedMountReady(), [])
+  const visible = useCsuiMountVisible(checkReady)
+
+  if (!onExploreFeed || !visible) return null
+
   return (
-    <ConfigProvider
-      theme={{
-        token: {
-          colorPrimary: "#ff2442",
-          borderRadius: 8
-        }
-      }}>
-      <App>
-        <PageCollectToolbar pageType="explore" layout="explore-channel" />
-      </App>
-    </ConfigProvider>
+    <CsuiRoot>
+      <PageCollectToolbar pageType="explore" layout="explore-channel" />
+    </CsuiRoot>
   )
 }
 

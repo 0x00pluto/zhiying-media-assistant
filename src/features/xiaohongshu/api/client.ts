@@ -1,7 +1,11 @@
 import { smzsRequest } from "~shared/messaging"
 import type { HttpRequestConfig } from "~shared/messaging/types"
 
-import { normalizeFeedListPayload, unwrapXhsResponsePayload } from "./unwrap-payload"
+import {
+  normalizeFeedListPayload,
+  normalizeXhsApiKeys,
+  unwrapXhsResponsePayload
+} from "./unwrap-payload"
 import { XHS_ENDPOINTS } from "./endpoints"
 
 export { unwrapXhsResponsePayload } from "./unwrap-payload"
@@ -20,7 +24,15 @@ async function xhsRequest<T = unknown>(config: HttpRequestConfig): Promise<T> {
     throw new Error(response.error)
   }
 
-  const body = unwrapXhsResponsePayload(response.data) as {
+  if (response.data == null || response.data === "") {
+    throw new Error("接口未返回数据（连接中断或被小红书限流），请稍后重试")
+  }
+
+  if (typeof response.status === "number" && (response.status < 200 || response.status >= 300)) {
+    throw new Error(response.error || `接口请求失败（HTTP ${response.status}）`)
+  }
+
+  const body = normalizeXhsApiKeys(unwrapXhsResponsePayload(response.data)) as {
     code?: number
     success?: boolean
     data?: T
@@ -45,7 +57,7 @@ async function xhsRequest<T = unknown>(config: HttpRequestConfig): Promise<T> {
       throw new Error(body.msg)
     }
     if ("data" in body && body.data != null) {
-      return body.data as T
+      return normalizeXhsApiKeys(body.data) as T
     }
   }
 

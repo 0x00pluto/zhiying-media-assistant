@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState } from "react"
 import { FeishuFieldPicker } from "~features/feishu/feishu-field-picker"
 import type { FieldOptions } from "~features/feishu/sync-records"
 import { COMMENT_COLUMNS } from "~features/xiaohongshu/columns/comment"
+import { CommentCollector } from "~features/xiaohongshu/tasks/comment"
 import { FeishuSyncPanel } from "~sidepanel/components/feishu-sync-panel"
 import { getCurrentTask, runTask } from "~sidepanel/store/task"
-import { copyToClipboard, exportCsv } from "~sidepanel/utils/export"
+import { exportCsv } from "~sidepanel/utils/export"
 import {
   loadExportFieldOptions,
   saveExportFieldOptions
@@ -19,6 +20,19 @@ type Props = {
   initialState?: Record<string, unknown>
 }
 
+function parseLinkLines(text: string) {
+  return text
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function resolveInitialLimitPerId(initialState?: Record<string, unknown>) {
+  const count = Number(initialState?.limitPerId)
+  if (count > 0) return count
+  return 100
+}
+
 export function BatchCommentPage({ initialState }: Props) {
   const [taskName, setTaskName] = useState(
     (initialState?.name as string) || "评论批量采集"
@@ -26,9 +40,7 @@ export function BatchCommentPage({ initialState }: Props) {
   const [links, setLinks] = useState(
     ((initialState?.urls as string[]) || []).join("\n")
   )
-  const [limitPerId, setLimitPerId] = useState(
-    Number(initialState?.limitPerId) || 100
-  )
+  const [limitPerId, setLimitPerId] = useState(resolveInitialLimitPerId(initialState))
   const [includeSub, setIncludeSub] = useState(
     initialState?.includeSub !== undefined ? Boolean(initialState.includeSub) : true
   )
@@ -40,18 +52,22 @@ export function BatchCommentPage({ initialState }: Props) {
   const [running, setRunning] = useState(false)
   const [status, setStatus] = useState(TaskStatus.INITIAL)
   const [progress, setProgress] = useState({ completed: 0, total: 0 })
+  const [records, setRecords] = useState<Record<string, unknown>[]>([])
   const [error, setError] = useState("")
+  const [partialWarning, setPartialWarning] = useState("")
 
-  const linkCount = useMemo(
-    () => links.split("\n").map((item) => item.trim()).filter(Boolean).length,
-    [links]
-  )
-
-  const commentCountHint = Number(initialState?.limitPerId) || 0
-  const showCommentCountHint =
-    linkCount === 1 &&
-    commentCountHint > 0 &&
-    ((initialState?.urls as string[]) || []).length === 1
+  const urls = useMemo(() => parseLinkLines(links), [links])
+  const linkCount = urls.length
+  const maxCommentCount =
+    urls.length === 1 ? Number(initialState?.limitPerId) || 0 : 0
+  const limitInvalid =
+    maxCommentCount > 0 && (limitPerId < 1 || limitPerId > maxCommentCount)
+  const canStart =
+    !running &&
+    urls.length > 0 &&
+    maxCommentCount > 0 &&
+    limitPerId >= 1 &&
+    limitPerId <= maxCommentCount
 
   useEffect(() => {
     if (initialState?.name) setTaskName(initialState.name as string)
@@ -59,7 +75,7 @@ export function BatchCommentPage({ initialState }: Props) {
       setLinks((initialState.urls as string[]).join("\n"))
     }
     if (initialState?.limitPerId !== undefined) {
-      setLimitPerId(Number(initialState.limitPerId) || 100)
+      setLimitPerId(resolveInitialLimitPerId(initialState))
     }
     if (initialState?.includeSub !== undefined) {
       setIncludeSub(Boolean(initialState.includeSub))
@@ -91,14 +107,35 @@ export function BatchCommentPage({ initialState }: Props) {
   }
 
   const startTask = async () => {
+    if (urls.length === 0) {
+      setError("暂无可用链接，请在小红书笔记页点击「导出评论」导入")
+      return
+    }
+
+    if (maxCommentCount > 0 && limitPerId > maxCommentCount) {
+      setError(`导出数量不能超过评论总数（当前 ${maxCommentCount} 条）`)
+      return
+    }
+
+    if (limitPerId < 1) {
+      setError("导出数量至少为 1 条")
+      return
+    }
+
     setError("")
+    setPartialWarning("")
     setRunning(true)
+
+    const effectiveLimit = Math.min(
+      Math.max(limitPerId, 1),
+      maxCommentCount || limitPerId
+    )
 
     const condition = {
       name: taskName.trim() || "评论批量采集",
       collectBy: "links" as const,
-      urls: links.split("\n").map((item) => item.trim()).filter(Boolean),
-      limitPerId,
+      urls,
+      limitPerId: effectiveLimit,
       includeSub,
       fieldOptions
     }
@@ -115,6 +152,7 @@ export function BatchCommentPage({ initialState }: Props) {
             total: current.getTotal()
           })
           setStatus(current.status)
+          setRecords([...current.records])
         }
       }, 500)
 
@@ -125,6 +163,12 @@ export function BatchCommentPage({ initialState }: Props) {
         completed: task.getCompleted(),
         total: task.getTotal()
       })
+      setRecords([...task.records])
+      if (task instanceof CommentCollector && task.partialStopReason) {
+        setPartialWarning(
+          `已采集 ${task.records.length} 条，未达目标数量：${task.partialStopReason}`
+        )
+      }
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -132,44 +176,47 @@ export function BatchCommentPage({ initialState }: Props) {
     }
   }
 
-  const task = getCurrentTask()
-  const records = task?.records || []
   const exportFilename = taskName.trim() || "小红书评论"
+  const isCompleted =
+    status === TaskStatus.COMPLETED && records.length > 0 && !running
 
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>批量导出评论数据</h2>
 
       <Form layout="vertical" disabled={running}>
-        <Form.Item label="任务名称">
+        <Form.Item
+          label="任务名称（由笔记页「导出评论」自动填入，不可手动修改）">
           <Input
             value={taskName}
-            onChange={(event) => setTaskName(event.target.value)}
+            readOnly
             placeholder="评论批量采集"
+            style={readOnlyInputStyle}
           />
         </Form.Item>
 
         <Form.Item
-          label="笔记链接"
+          label="笔记链接（不可手动修改）"
           extra={
             <Typography.Text type="secondary">
-              共输入了 {linkCount} 个链接
+              共 {linkCount} 个链接
             </Typography.Text>
           }>
           <Input.TextArea
             value={links}
-            onChange={(event) => setLinks(event.target.value)}
+            readOnly
             rows={6}
-            placeholder="每行一条笔记链接"
+            placeholder="请在小红书笔记页点击「导出评论」导入链接"
+            style={readOnlyInputStyle}
           />
         </Form.Item>
 
         <Form.Item
-          label="导出数量"
+          label={`导出数量（不超过评论总数 ${maxCommentCount || 0} 条）`}
           extra={
-            showCommentCountHint ? (
+            maxCommentCount > 0 ? (
               <Typography.Text type="secondary">
-                当前笔记共有 {commentCountHint} 条评论
+                当前笔记共有 {maxCommentCount} 条评论
               </Typography.Text>
             ) : (
               <Typography.Text type="secondary">
@@ -179,11 +226,28 @@ export function BatchCommentPage({ initialState }: Props) {
           }>
           <InputNumber
             min={1}
+            max={maxCommentCount || undefined}
             style={{ width: "100%" }}
             value={limitPerId}
-            onChange={(value) => setLimitPerId(Number(value) || 100)}
+            disabled={maxCommentCount === 0}
+            onChange={(value) => {
+              setLimitPerId(Number(value))
+              setError("")
+            }}
           />
         </Form.Item>
+
+        {linkCount === 0 && (
+          <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
+            暂无链接。请打开小红书笔记页，点击「导出评论」后再开始采集。
+          </Typography.Paragraph>
+        )}
+
+        {limitInvalid && (
+          <Typography.Paragraph type="danger" style={{ marginTop: -8 }}>
+            导出数量不能超过评论总数（当前 {maxCommentCount} 条）
+          </Typography.Paragraph>
+        )}
 
         <Form.Item label="采集子评论" valuePropName="checked">
           <Switch checked={includeSub} onChange={setIncludeSub} />
@@ -203,22 +267,12 @@ export function BatchCommentPage({ initialState }: Props) {
       </Form>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
-        <Button type="primary" onClick={startTask} loading={running}>
+        <Button
+          type="primary"
+          onClick={startTask}
+          loading={running}
+          disabled={!canStart}>
           {running ? "采集中..." : "开始采集"}
-        </Button>
-        <Button
-          disabled={!records.length}
-          onClick={() =>
-            exportCsv(COMMENT_COLUMNS, records, exportFilename, fieldOptions)
-          }>
-          导出 CSV
-        </Button>
-        <Button
-          disabled={!records.length}
-          onClick={() =>
-            copyToClipboard(COMMENT_COLUMNS, records, fieldOptions)
-          }>
-          复制
         </Button>
       </div>
 
@@ -226,19 +280,39 @@ export function BatchCommentPage({ initialState }: Props) {
         <Typography.Text type="danger">{error}</Typography.Text>
       ) : null}
 
+      {partialWarning ? (
+        <Typography.Paragraph type="warning" style={{ marginBottom: 12 }}>
+          {partialWarning}
+        </Typography.Paragraph>
+      ) : null}
+
       <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
         状态: {status} · 进度 {progress.completed}/{progress.total}
       </Typography.Paragraph>
 
-      {records.length > 0 ? (
+      {isCompleted && (
         <FeishuSyncPanel
           columns={COMMENT_COLUMNS}
           records={records}
           fieldOptions={fieldOptions}
           storageKey="qmc-quickSyncFeishu-comment"
           skipDialogKey="qmc-skipFeishuDialog-comment"
+          extraActions={
+            <Button
+              onClick={() =>
+                exportCsv(COMMENT_COLUMNS, records, exportFilename, fieldOptions)
+              }>
+              导出 CSV
+            </Button>
+          }
         />
-      ) : null}
+      )}
     </div>
   )
+}
+
+const readOnlyInputStyle: React.CSSProperties = {
+  background: "#f9fafb",
+  cursor: "default",
+  color: "#374151"
 }

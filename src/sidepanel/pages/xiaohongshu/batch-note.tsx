@@ -1,3 +1,4 @@
+import { Button } from "antd"
 import { useEffect, useState } from "react"
 
 import { NOTE_COLUMNS } from "~features/xiaohongshu/columns/note"
@@ -13,7 +14,7 @@ import {
 import { FeishuSyncPanel } from "~sidepanel/components/feishu-sync-panel"
 import { openExtensionOptions } from "~shared/messaging"
 import { getCurrentTask, runTask } from "~sidepanel/store/task"
-import { copyToClipboard, exportCsv } from "~sidepanel/utils/export"
+import { exportCsv } from "~sidepanel/utils/export"
 import { TaskStatus } from "~shared/task-runner"
 
 type Props = {
@@ -39,22 +40,15 @@ function filterCollectibleUrls(urls: string[]) {
 }
 
 function resolveInitialLimit(initialState?: Record<string, unknown>) {
-  const collectBy = (initialState?.collectBy as string) || "keyword"
   const urlList = (initialState?.urls as string[]) || []
-
-  if (collectBy === "links" && urlList.length) {
+  if (urlList.length) {
     return Number(initialState?.limit) || urlList.length
   }
-
   return Number(initialState?.limit) || 200
 }
 
 export function BatchNotePage({ initialState }: Props) {
   const { enabled: noteBatchEnabled } = useNoteBatchCollectEnabled()
-  const [collectBy, setCollectBy] = useState(
-    (initialState?.collectBy as string) || "keyword"
-  )
-  const [keyword, setKeyword] = useState((initialState?.keyword as string) || "")
   const [links, setLinks] = useState(
     ((initialState?.urls as string[]) || []).join("\n")
   )
@@ -68,20 +62,21 @@ export function BatchNotePage({ initialState }: Props) {
 
   useEffect(() => {
     if (initialState) {
-      setCollectBy((initialState.collectBy as string) || "keyword")
-      setKeyword((initialState.keyword as string) || "")
       setLinks(((initialState.urls as string[]) || []).join("\n"))
       setLimit(resolveInitialLimit(initialState))
     }
   }, [initialState])
 
-  const handleLinksChange = (text: string) => {
-    setLinks(text)
-    if (collectBy === "links") {
-      const count = filterCollectibleUrls(parseLinkLines(text)).length
-      if (count > 0) setLimit(count)
-    }
-  }
+  const collectibleUrls = filterCollectibleUrls(parseLinkLines(links))
+  const collectibleCount = collectibleUrls.length
+  const limitExceedsLinks =
+    collectibleCount > 0 && (limit < 1 || limit > collectibleCount)
+  const canStart =
+    noteBatchEnabled &&
+    !running &&
+    collectibleCount > 0 &&
+    limit >= 1 &&
+    limit <= collectibleCount
 
   const startTask = async () => {
     if (!noteBatchEnabled) {
@@ -89,56 +84,51 @@ export function BatchNotePage({ initialState }: Props) {
       return
     }
 
+    if (collectibleCount === 0) {
+      setError("暂无可用链接，请在小红书页面点击「采集本页笔记」导入")
+      return
+    }
+
+    if (limit > collectibleCount) {
+      setError(`采集条数不能超过链接数（当前 ${collectibleCount} 条）`)
+      return
+    }
+
     setError("")
     setWarning("")
     setRunning(true)
 
-    const rawUrlList = parseLinkLines(links)
-    const urlList =
-      collectBy === "links" ? filterCollectibleUrls(rawUrlList) : rawUrlList
-    const effectiveLimit =
-      collectBy === "links"
-        ? Math.min(Math.max(limit, 1), urlList.length || limit)
-        : limit
+    const effectiveLimit = Math.min(Math.max(limit, 1), collectibleCount)
 
     const condition: Record<string, unknown> = {
       name: (initialState?.name as string) || "笔记批量采集",
-      collectBy,
+      collectBy: "links",
       limit: effectiveLimit,
       note_type: initialState?.note_type ?? 0,
-      sort: initialState?.sort || "general"
+      sort: initialState?.sort || "general",
+      urls: collectibleUrls.slice(0, effectiveLimit)
     }
 
     if (initialState?.pageCollectType) {
       condition.pageCollectType = initialState.pageCollectType
     }
 
-    if (collectBy === "keyword") {
-      condition.keyword = keyword
-    } else if (collectBy === "links") {
-      condition.urls = urlList.slice(0, effectiveLimit)
-      const pageNotes = initialState?.pageNotes as
-        | Array<{
-            id: string
-            url: string
-            xsec_token?: string
-            noteCard?: Record<string, unknown>
-            api?: string
-          }>
-        | undefined
-      if (pageNotes?.length) {
-        const urlListSet = new Set(condition.urls as string[])
-        condition.pageNotes = pageNotes.filter(
-          (note) =>
-            urlListSet.has(note.url) ||
-            (condition.urls as string[]).some((item) => item.includes(note.id))
-        )
-      }
-    } else if (collectBy !== "homefeed") {
-      condition.urls = urlList
-      if (collectBy === "author-links" || collectBy === "board-links") {
-        condition.limitPerId = effectiveLimit
-      }
+    const pageNotes = initialState?.pageNotes as
+      | Array<{
+          id: string
+          url: string
+          xsec_token?: string
+          noteCard?: Record<string, unknown>
+          api?: string
+        }>
+      | undefined
+    if (pageNotes?.length) {
+      const urlListSet = new Set(condition.urls as string[])
+      condition.pageNotes = pageNotes.filter(
+        (note) =>
+          urlListSet.has(note.url) ||
+          (condition.urls as string[]).some((item) => item.includes(note.id))
+      )
     }
 
     try {
@@ -185,7 +175,8 @@ export function BatchNotePage({ initialState }: Props) {
     }
   }
 
-  const linkCount = parseLinkLines(links).length
+  const isCompleted =
+    status === TaskStatus.COMPLETED && records.length > 0 && !running
 
   return (
     <div>
@@ -224,76 +215,65 @@ export function BatchNotePage({ initialState }: Props) {
 
       <label style={labelStyle}>
         采集方式
-        <select
-          value={collectBy}
-          onChange={(e) => setCollectBy(e.target.value)}
-          style={inputStyle}>
-          <option value="keyword">关键词</option>
+        <select value="links" disabled style={inputStyle}>
           <option value="links">笔记链接</option>
-          <option value="author-links">博主链接</option>
-          <option value="board-links">专辑链接</option>
-          <option value="homefeed">首页推荐</option>
         </select>
       </label>
 
-      {collectBy === "keyword" ? (
-        <label style={labelStyle}>
-          关键词
-          <input
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            style={inputStyle}
-          />
-        </label>
-      ) : collectBy !== "homefeed" ? (
-        <label style={labelStyle}>
-          链接（每行一条）
-          <textarea
-            value={links}
-            onChange={(e) => handleLinksChange(e.target.value)}
-            rows={6}
-            style={inputStyle}
-          />
-        </label>
-      ) : null}
+      <label style={labelStyle}>
+        链接（每行一条，由「采集本页笔记」自动填入，不可手动修改）
+        <textarea
+          value={links}
+          readOnly
+          rows={6}
+          style={{
+            ...inputStyle,
+            ...readOnlyInputStyle,
+            color: links ? "#374151" : "#9ca3af"
+          }}
+          placeholder="请在小红书页面点击「采集本页笔记」导入链接"
+        />
+      </label>
 
       <label style={labelStyle}>
-        {collectBy === "links" ? "采集条数（不超过链接数）" : "数量上限"}
+        采集条数（不超过链接数 {collectibleCount || 0} 条）
         <input
           type="number"
           min={1}
-          max={collectBy === "links" && linkCount ? linkCount : undefined}
+          max={collectibleCount || undefined}
           value={limit}
-          onChange={(e) => setLimit(Number(e.target.value))}
+          onChange={(e) => {
+            setLimit(Number(e.target.value))
+            setError("")
+          }}
+          disabled={collectibleCount === 0}
           style={inputStyle}
         />
       </label>
+
+      {collectibleCount === 0 && (
+        <p style={{ color: "#6b7280", fontSize: 13, margin: "0 0 12px" }}>
+          暂无链接。请打开小红书发现页/搜索页/博主页，点击「采集本页笔记」后再开始采集。
+        </p>
+      )}
+
+      {limitExceedsLinks && (
+        <p style={{ color: "#dc2626", fontSize: 13, margin: "0 0 12px" }}>
+          采集条数不能超过链接数（当前 {collectibleCount} 条）
+        </p>
+      )}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         <button
           type="button"
           onClick={startTask}
-          disabled={running || !noteBatchEnabled}
+          disabled={!canStart}
           style={{
             ...primaryBtn,
-            opacity: noteBatchEnabled ? 1 : 0.5,
-            cursor: noteBatchEnabled ? "pointer" : "not-allowed"
+            opacity: canStart ? 1 : 0.5,
+            cursor: canStart ? "pointer" : "not-allowed"
           }}>
           {running ? "采集中..." : "开始采集"}
-        </button>
-        <button
-          type="button"
-          disabled={!records.length}
-          onClick={() => exportCsv(NOTE_COLUMNS, records, "小红书笔记")}
-          style={secondaryBtn}>
-          导出 CSV
-        </button>
-        <button
-          type="button"
-          disabled={!records.length}
-          onClick={() => copyToClipboard(NOTE_COLUMNS, records)}
-          style={secondaryBtn}>
-          复制
         </button>
       </div>
 
@@ -303,8 +283,16 @@ export function BatchNotePage({ initialState }: Props) {
         状态: {status} · 进度 {progress.completed}/{progress.total}
       </p>
 
-      {records.length > 0 && (
-        <FeishuSyncPanel columns={NOTE_COLUMNS} records={records} />
+      {isCompleted && (
+        <FeishuSyncPanel
+          columns={NOTE_COLUMNS}
+          records={records}
+          extraActions={
+            <Button onClick={() => exportCsv(NOTE_COLUMNS, records, "小红书笔记")}>
+              导出 CSV
+            </Button>
+          }
+        />
       )}
 
       {records.length > 0 && (
@@ -354,20 +342,18 @@ const inputStyle: React.CSSProperties = {
   boxSizing: "border-box"
 }
 
+const readOnlyInputStyle: React.CSSProperties = {
+  background: "#f9fafb",
+  cursor: "default",
+  resize: "none"
+}
+
 const primaryBtn: React.CSSProperties = {
   padding: "8px 14px",
   borderRadius: 6,
   border: "none",
   background: "#ff2442",
   color: "#fff",
-  cursor: "pointer"
-}
-
-const secondaryBtn: React.CSSProperties = {
-  padding: "8px 14px",
-  borderRadius: 6,
-  border: "1px solid #d1d5db",
-  background: "#fff",
   cursor: "pointer"
 }
 

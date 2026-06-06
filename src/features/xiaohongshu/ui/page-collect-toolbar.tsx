@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useLayoutEffect, useState } from "react"
 
 import {
   bootstrapPageNotesFromFeeds,
@@ -13,6 +13,8 @@ import {
   CollectPageNotesModal,
   type PageCollectType
 } from "~features/xiaohongshu/ui/collect-page-notes-modal"
+import { qmcCsuiButtonStyle } from "~features/xiaohongshu/ui/csui-theme"
+import { computeExploreChannelMarginLeft } from "~features/xiaohongshu/utils/csui-mount-ready"
 
 type Props = {
   label?: string
@@ -52,7 +54,10 @@ export function PageCollectToolbar({
 }: Props) {
   const { enabled: noteBatchEnabled, ready } = useNoteBatchCollectEnabled()
   const [open, setOpen] = useState(false)
-  const [channelWidth, setChannelWidth] = useState<number | undefined>()
+  const isExploreChannel = layout === "explore-channel"
+  const [channelMarginLeft, setChannelMarginLeft] = useState<number | undefined>(
+    () => (isExploreChannel ? computeExploreChannelMarginLeft() : undefined)
+  )
 
   useEffect(() => {
     void bootstrapPageNotes(pageType)
@@ -72,37 +77,35 @@ export function PageCollectToolbar({
     return () => observer.disconnect()
   }, [pageType])
 
-  useEffect(() => {
-    if (layout !== "explore-channel") return
+  useLayoutEffect(() => {
+    if (!isExploreChannel) return
 
-    const updateWidth = () => {
-      const channel =
-        document.getElementById("channel-container") ||
-        document.querySelector("div.feeds-page > div.channel-container")
-      const width = channel?.getBoundingClientRect().width
-      if (width) setChannelWidth(width)
+    const updateLayout = () => {
+      setChannelMarginLeft(computeExploreChannelMarginLeft())
     }
 
-    updateWidth()
-    window.addEventListener("resize", updateWidth)
-    return () => window.removeEventListener("resize", updateWidth)
-  }, [layout])
+    updateLayout()
+    window.addEventListener("resize", updateLayout)
 
-  const buttonStyle: React.CSSProperties = {
-    padding: "8px 16px",
-    borderRadius: 8,
-    border: "none",
-    background: "#ff2442",
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: 600,
-    cursor: "pointer",
-    boxShadow: "0 2px 8px rgba(255, 36, 66, 0.25)"
-  }
+    const channel =
+      document.getElementById("channel-container") ||
+      document.querySelector("div.feeds-page > div.channel-container")
+    const observer = new MutationObserver(updateLayout)
+    if (channel) {
+      observer.observe(channel, { childList: true, subtree: true, attributes: true })
+    }
 
-  const isExploreChannel = layout === "explore-channel"
+    return () => {
+      window.removeEventListener("resize", updateLayout)
+      observer.disconnect()
+    }
+  }, [isExploreChannel])
 
   if (ready && !noteBatchEnabled) {
+    return null
+  }
+
+  if (isExploreChannel && channelMarginLeft === undefined) {
     return null
   }
 
@@ -111,13 +114,22 @@ export function PageCollectToolbar({
       <div
         style={{
           display: "flex",
-          justifyContent: isExploreChannel ? "center" : "flex-start",
-          width: isExploreChannel ? channelWidth : undefined,
-          maxWidth: "100%",
+          justifyContent: "flex-start",
+          marginLeft: isExploreChannel ? channelMarginLeft : undefined,
           marginBottom: isExploreChannel ? 8 : 12,
-          marginTop: pageType === "profile" ? 12 : 0
+          marginTop: pageType === "profile" ? 12 : 0,
+          position: isExploreChannel ? "relative" : undefined,
+          zIndex: isExploreChannel ? 0 : undefined,
+          pointerEvents: isExploreChannel ? "none" : undefined
         }}>
-        <button type="button" onClick={() => setOpen(true)} style={buttonStyle}>
+        <button
+          type="button"
+          className="qmc-csui-btn"
+          onClick={() => setOpen(true)}
+          style={{
+            ...qmcCsuiButtonStyle,
+            pointerEvents: isExploreChannel ? "auto" : undefined
+          }}>
           {label}
         </button>
       </div>

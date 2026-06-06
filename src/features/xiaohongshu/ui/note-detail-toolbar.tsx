@@ -1,4 +1,4 @@
-import { Button, message } from "antd"
+import { message } from "antd"
 import { useMemo, useState } from "react"
 
 import {
@@ -20,6 +20,7 @@ import {
 import { NOTE_COLUMNS } from "~features/xiaohongshu/columns/note"
 import { extractNoteMediaFiles } from "~features/xiaohongshu/media/extract"
 import { downloadConfigStorage } from "~features/xiaohongshu/storage/download-config"
+import { qmcCsuiButtonStyle } from "~features/xiaohongshu/ui/csui-theme"
 import { downloadFile, navigateSidepanel } from "~shared/messaging"
 
 const FEISHU_STORAGE_KEY = "qmc-quickSyncFeishu-note"
@@ -185,7 +186,6 @@ export function NoteDetailToolbar({ noteId: propNoteId }: Props) {
     <>
       {!feishuOpen ? (
         <div
-          className="qmc-note-toolbar"
           style={{
             display: "flex",
             flexWrap: "wrap",
@@ -194,34 +194,50 @@ export function NoteDetailToolbar({ noteId: propNoteId }: Props) {
             width: "100%",
             boxSizing: "border-box"
           }}>
-          <Button
-            type="primary"
-            className="qmc-toolbar-btn"
-            loading={downloading}
-            onClick={handleDownload}>
-            {downloadLabel}
-          </Button>
-          <Button
-            type="primary"
-            className="qmc-toolbar-btn"
-            loading={copying}
-            onClick={handleCopy}>
-            复制笔记信息
-          </Button>
-          <Button
-            type="primary"
-            className="qmc-toolbar-btn"
-            loading={feishuSyncing}
-            onClick={handleFeishu}>
-            同步飞书
-          </Button>
-          <Button
-            type="primary"
-            className="qmc-toolbar-btn"
-            loading={exportingComments}
-            onClick={handleExportComments}>
-            导出评论
-          </Button>
+          <button
+            type="button"
+            className="qmc-csui-btn"
+            disabled={downloading}
+            onClick={handleDownload}
+            style={{
+              ...qmcCsuiButtonStyle,
+              cursor: downloading ? "wait" : "pointer"
+            }}>
+            {downloading ? "下载中..." : downloadLabel}
+          </button>
+          <button
+            type="button"
+            className="qmc-csui-btn"
+            disabled={copying}
+            onClick={handleCopy}
+            style={{
+              ...qmcCsuiButtonStyle,
+              cursor: copying ? "wait" : "pointer"
+            }}>
+            {copying ? "复制中..." : "复制笔记信息"}
+          </button>
+          <button
+            type="button"
+            className="qmc-csui-btn"
+            disabled={feishuSyncing}
+            onClick={handleFeishu}
+            style={{
+              ...qmcCsuiButtonStyle,
+              cursor: feishuSyncing ? "wait" : "pointer"
+            }}>
+            {feishuSyncing ? "同步中..." : "同步飞书"}
+          </button>
+          <button
+            type="button"
+            className="qmc-csui-btn"
+            disabled={exportingComments}
+            onClick={handleExportComments}
+            style={{
+              ...qmcCsuiButtonStyle,
+              cursor: exportingComments ? "wait" : "pointer"
+            }}>
+            {exportingComments ? "跳转中..." : "导出评论"}
+          </button>
         </div>
       ) : null}
 

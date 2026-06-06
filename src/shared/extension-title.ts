@@ -1,4 +1,4 @@
-const FALLBACK_NAME = "全媒采集助手"
+const FALLBACK_NAME = "智赢媒体助手"
 
 export function getExtensionName() {
   return chrome.i18n.getMessage("extName") || FALLBACK_NAME

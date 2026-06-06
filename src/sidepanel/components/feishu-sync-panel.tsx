@@ -1,4 +1,5 @@
 import { Button } from "antd"
+import type { ReactNode } from "react"
 import { useState } from "react"
 
 import { FeishuSyncModal } from "~features/feishu/sync-modal"
@@ -11,6 +12,7 @@ type Props = {
   fieldOptions?: FieldOptions
   storageKey?: string
   skipDialogKey?: string
+  extraActions?: ReactNode
 }
 
 export function FeishuSyncPanel({
@@ -18,19 +20,29 @@ export function FeishuSyncPanel({
   records,
   fieldOptions,
   storageKey = "qmc-quickSyncFeishu-batch",
-  skipDialogKey = "qmc-skipFeishuDialog-batch"
+  skipDialogKey = "qmc-skipFeishuDialog-batch",
+  extraActions
 }: Props) {
   const [open, setOpen] = useState(false)
 
   return (
     <>
-      <Button
-        type="primary"
-        style={{ marginTop: 16, background: "#2563eb" }}
-        onClick={() => setOpen(true)}
-        disabled={!records.length}>
-        同步到飞书
-      </Button>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 8,
+          marginTop: 16
+        }}>
+        <Button
+          type="primary"
+          style={{ background: "#2563eb" }}
+          onClick={() => setOpen(true)}
+          disabled={!records.length}>
+          同步到飞书
+        </Button>
+        {extraActions}
+      </div>
       <FeishuSyncModal
         open={open}
         onClose={() => setOpen(false)}

@@ -283,9 +283,23 @@ async function enhancedRequest(config: HttpRequestConfig): Promise<HttpResponse>
 
   try {
     if (["GET", "DELETE", "HEAD"].includes(method)) {
-      const response = client.get
-        ? await client.get(config.url, { ...config, method })
-        : await client.request?.({ ...config, method })
+      let response: unknown
+      try {
+        response = client.get
+          ? await client.get(config.url, { ...config, method })
+          : await client.request?.({ ...config, method })
+      } catch (error) {
+        const recovered = recoverHttpResponseFromError(error)
+        if (recovered) return recovered
+        return {
+          status: 500,
+          statusText: "Error",
+          data: null,
+          headers: {},
+          error: (error as Error).message || "页面 HTTP 请求失败，请刷新小红书页面后重试"
+        }
+      }
+
       const normalized = normalizeNativeResponse(response)
       if (!normalized) {
         return {
@@ -300,7 +314,21 @@ async function enhancedRequest(config: HttpRequestConfig): Promise<HttpResponse>
     }
 
     if (["POST", "PUT", "PATCH"].includes(method)) {
-      const response = await nativePost(client, config.url, config.data)
+      let response: unknown
+      try {
+        response = await nativePost(client, config.url, config.data)
+      } catch (error) {
+        const recovered = recoverHttpResponseFromError(error)
+        if (recovered) return recovered
+        return {
+          status: 500,
+          statusText: "Error",
+          data: null,
+          headers: {},
+          error: (error as Error).message || "页面 HTTP 请求失败，请刷新小红书页面后重试"
+        }
+      }
+
       const normalized = normalizeNativeResponse(response)
       if (!normalized) {
         return {

@@ -1,3 +1,36 @@
+/** 页面 webpack axios 常返回 camelCase，demo 用 jT 转 snake_case；此处仅补常见别名 */
+const XHS_KEY_ALIASES: ReadonlyArray<readonly [snake: string, camel: string]> = [
+  ["has_more", "hasMore"],
+  ["xsec_token", "xsecToken"],
+  ["sub_comment_has_more", "subCommentHasMore"],
+  ["sub_comment_cursor", "subCommentCursor"],
+  ["sub_comment_count", "subCommentCount"],
+  ["sub_comments", "subComments"]
+]
+
+export function normalizeXhsApiKeys(raw: unknown): unknown {
+  if (raw == null || typeof raw !== "object") return raw
+
+  if (Array.isArray(raw)) {
+    return raw.map((item) => normalizeXhsApiKeys(item))
+  }
+
+  const obj = raw as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+
+  for (const [key, value] of Object.entries(obj)) {
+    out[key] = normalizeXhsApiKeys(value)
+  }
+
+  for (const [snake, camel] of XHS_KEY_ALIASES) {
+    if (out[snake] === undefined && camel in out) {
+      out[snake] = out[camel]
+    }
+  }
+
+  return out
+}
+
 /** 统一解包小红书 API 响应（axios 包装 / 业务 envelope / 已解包 payload） */
 export function unwrapXhsResponsePayload(raw: unknown): unknown {
   if (raw == null || typeof raw !== "object") return raw
@@ -6,6 +39,8 @@ export function unwrapXhsResponsePayload(raw: unknown): unknown {
 
   if (
     typeof value.status === "number" &&
+    value.status >= 100 &&
+    value.status < 600 &&
     "data" in value &&
     value.data !== undefined
   ) {

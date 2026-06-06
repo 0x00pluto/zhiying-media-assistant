@@ -1,5 +1,9 @@
 import { useState } from "react"
 
+import {
+  QMC_CSUI_FLOATING_Z_INDEX,
+  qmcCsuiFloatingButtonStyle
+} from "~features/xiaohongshu/ui/csui-theme"
 import { navigateSidepanel } from "~shared/messaging"
 
 type Props = {
@@ -24,22 +28,16 @@ export function CsuiCollectButton({ label, to, state, bottom = 24 }: Props) {
   return (
     <button
       type="button"
+      className="qmc-csui-btn"
       onClick={handleClick}
       disabled={loading}
       style={{
+        ...qmcCsuiFloatingButtonStyle,
         position: "fixed",
         right: 24,
         bottom,
-        zIndex: 2147483646,
-        padding: "10px 16px",
-        borderRadius: 8,
-        border: "none",
-        background: "#ff2442",
-        color: "#fff",
-        fontSize: 14,
-        fontWeight: 600,
-        cursor: loading ? "wait" : "pointer",
-        boxShadow: "0 4px 12px rgba(0,0,0,0.15)"
+        zIndex: QMC_CSUI_FLOATING_Z_INDEX,
+        cursor: loading ? "wait" : "pointer"
       }}>
       {loading ? "跳转中..." : label}
     </button>

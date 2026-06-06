@@ -1,5 +1,15 @@
 import { fetchComments, fetchSubComments } from "~features/xiaohongshu/api/client"
 import { parseNoteUrl, sleep } from "~features/xiaohongshu/api/parsers"
+import {
+  COMMENT_COLLECT_INTERVAL,
+  formatCommentRequestError,
+  getEmbeddedSubComments,
+  isRetryableCommentError,
+  needsSubCommentFetch,
+  parseCommentList,
+  shouldDegradeCommentPage,
+  type CommentListParseResult
+} from "~features/xiaohongshu/collectors/comment-api-helpers"
 import { COMMENT_COLUMNS } from "~features/xiaohongshu/columns/comment"
 import type { FieldOptions } from "~features/feishu/sync-records"
 import type { XhsApiType } from "~shared/columns/types"
@@ -59,6 +69,79 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
   readonly type = "comment"
   readonly allColumns = COMMENT_COLUMNS
   private commentIds = new Set<string>()
+  interval = { ...COMMENT_COLLECT_INTERVAL.default }
+  /** 翻页/接口异常时提前结束，但保留已采数据 */
+  partialStopReason = ""
+  /** 笔记级熔断：空响应/限流后不再发 comment/sub 请求 */
+  private degradedNotes = new Set<string>()
+
+  private isApiDegraded(noteId: string) {
+    return this.degradedNotes.has(noteId)
+  }
+
+  private markApiDegraded(noteId: string, error?: unknown) {
+    this.degradedNotes.add(noteId)
+    if (error !== undefined) {
+      this.stopPaginationEarly(noteId, error)
+      return
+    }
+    if (!this.partialStopReason) {
+      this.partialStopReason = "评论接口返回异常空页，已停止继续采集"
+    }
+  }
+
+  /** 无效/空页：一级评论保留部分数据时熔断；子评论翻页始终熔断 */
+  private stopOnBadCommentPage(
+    noteId: string,
+    parsed: CommentListParseResult,
+    alwaysDegrade: boolean
+  ) {
+    if (!shouldDegradeCommentPage(parsed)) return false
+    if (alwaysDegrade || this.getCurrCompleted(noteId) > 0) {
+      this.markApiDegraded(noteId)
+    }
+    return true
+  }
+
+  private async waitInterval(extraMin = 0, extraMax = 0) {
+    await sleep(
+      this.interval.min + extraMin,
+      this.interval.max + extraMax
+    )
+  }
+
+  private async requestWithRetry<T>(
+    request: () => Promise<T>,
+    context: string,
+    maxRetries = 2
+  ) {
+    let lastError: unknown
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (attempt === 0) {
+          await this.waitInterval()
+        } else {
+          await sleep(3 + attempt * 2, 6 + attempt * 2)
+        }
+        return await request()
+      } catch (error) {
+        lastError = error
+        if (attempt < maxRetries && isRetryableCommentError(error)) {
+          console.warn(`${context} retry ${attempt + 1}`, error)
+          continue
+        }
+        throw error
+      }
+    }
+
+    throw lastError
+  }
+
+  private stopPaginationEarly(noteId: string, error: unknown) {
+    this.partialStopReason = formatCommentRequestError(error)
+    console.warn("comment pagination stopped early", noteId, error)
+  }
 
   getTotal() {
     const planned =
@@ -80,6 +163,12 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
 
   async execute() {
     this.commentIds.clear()
+    this.partialStopReason = ""
+    this.degradedNotes.clear()
+    this.interval = this.condition.includeSub
+      ? { ...COMMENT_COLLECT_INTERVAL.withSub }
+      : { ...COMMENT_COLLECT_INTERVAL.default }
+
     for (const url of this.condition.urls || []) {
       await this.collectNoteComments(url, this.condition.limitPerId || 100)
     }
@@ -219,17 +308,13 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
     return record
   }
 
-  private async collectSubComments(
+  private async collectEmbeddedSubComments(
     pageUrl: string,
     noteId: string,
-    rootComment: Record<string, unknown>,
-    token: string
+    rootComment: Record<string, unknown>
   ) {
-    const embedded = (rootComment.sub_comments || []) as Array<
-      Record<string, unknown>
-    >
-
-    for (const subComment of embedded) {
+    for (const subComment of getEmbeddedSubComments(rootComment)) {
+      if (this.isApiDegraded(noteId)) return
       if (this.getCurrCompleted(noteId) >= (this.condition.limitPerId || 100)) {
         return
       }
@@ -241,44 +326,57 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
         rootComment
       })
     }
+  }
 
-    const embeddedCount = embedded.length
-    const totalSubCount = Number(rootComment.sub_comment_count ?? 0)
-    const hasMore =
-      Boolean(rootComment.sub_comment_has_more) ||
-      totalSubCount > embeddedCount
+  /** 阶段 2：仅 sub/page 翻页（embedded 已在阶段 1 写入） */
+  private async collectSubComments(
+    pageUrl: string,
+    noteId: string,
+    rootComment: Record<string, unknown>,
+    token: string
+  ) {
+    if (this.isApiDegraded(noteId)) return
 
-    if (!hasMore) return
+    if (!needsSubCommentFetch(rootComment)) return
 
-    let cursor = String(rootComment.sub_comment_cursor || "")
+    let cursor = String(
+      rootComment.sub_comment_cursor ?? rootComment.subCommentCursor ?? ""
+    )
     const rootCommentId = String(rootComment.id)
 
-    while (this.getCurrCompleted(noteId) < (this.condition.limitPerId || 100)) {
-      let result: {
-        comments?: Array<Record<string, unknown>>
-        cursor?: string
-        has_more?: boolean
-      }
+    while (
+      !this.isApiDegraded(noteId) &&
+      this.getCurrCompleted(noteId) < (this.condition.limitPerId || 100)
+    ) {
+      let result: unknown
 
       try {
-        result = (await fetchSubComments({
-          note_id: noteId,
-          root_comment_id: rootCommentId,
-          num: 10,
-          cursor,
-          top_comment_id: "",
-          image_formats: "jpg,webp,avif",
-          xsec_token: token
-        })) as typeof result
+        result = await this.requestWithRetry(
+          () =>
+            fetchSubComments({
+              note_id: noteId,
+              root_comment_id: rootCommentId,
+              num: 10,
+              cursor,
+              top_comment_id: "",
+              image_formats: "jpg,webp,avif",
+              xsec_token: token
+            }),
+          `sub_comment:${rootCommentId}`,
+          0
+        )
       } catch (error) {
         console.warn("fetch sub comments page failed", rootCommentId, error)
-        break
+        this.markApiDegraded(noteId, error)
+        return
       }
 
-      const comments = result.comments || []
-      if (!comments.length) break
+      const parsed = parseCommentList(result)
 
-      for (const subComment of comments) {
+      if (this.stopOnBadCommentPage(noteId, parsed, true)) return
+
+      for (const subComment of parsed.comments) {
+        if (this.isApiDegraded(noteId)) return
         if (this.getCurrCompleted(noteId) >= (this.condition.limitPerId || 100)) {
           return
         }
@@ -291,34 +389,53 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
         })
       }
 
-      if (!result.has_more) break
-      cursor = result.cursor || ""
-      if (!cursor) break
-      await sleep()
+      if (!parsed.hasMore || parsed.isEmpty) break
+
+      cursor = parsed.cursor
     }
   }
 
   private async collectNoteComments(pageUrl: string, limit: number) {
     const note = parseNoteUrl(pageUrl)
+    const xsecToken = note.token
     let cursor = ""
+    const pendingSubRoots: Array<Record<string, unknown>> = []
+    const { subRootExtra } = COMMENT_COLLECT_INTERVAL
 
-    while (this.getCurrCompleted(note.id) < limit) {
-      const result = (await fetchComments({
-        note_id: note.id,
-        cursor,
-        top_comment_id: "",
-        image_formats: "jpg,webp,avif",
-        xsec_token: note.token
-      })) as {
-        comments?: Array<Record<string, unknown>>
-        cursor?: string
-        has_more?: boolean
+    // 阶段 1：滚动式一级 comment/page（对齐浏览器，不在此阶段打 sub/page）
+    while (
+      !this.isApiDegraded(note.id) &&
+      this.getCurrCompleted(note.id) < limit
+    ) {
+      let result: unknown
+
+      try {
+        result = await this.requestWithRetry(
+          () =>
+            fetchComments({
+              note_id: note.id,
+              cursor,
+              top_comment_id: "",
+              image_formats: "jpg,webp,avif",
+              xsec_token: xsecToken
+            }),
+          `comment_page:${note.id}:${cursor || "first"}`,
+          0
+        )
+      } catch (error) {
+        if (this.getCurrCompleted(note.id) > 0) {
+          this.markApiDegraded(note.id, error)
+          break
+        }
+        throw new Error(formatCommentRequestError(error))
       }
 
-      const comments = result.comments || []
-      if (!comments.length) break
+      const parsed = parseCommentList(result)
 
-      for (const comment of comments) {
+      if (this.stopOnBadCommentPage(note.id, parsed, false)) break
+
+      for (const comment of parsed.comments) {
+        if (this.isApiDegraded(note.id)) break
         if (this.getCurrCompleted(note.id) >= limit) break
 
         await this.addRecord({
@@ -328,18 +445,32 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
           pageUrl
         })
 
-        if (this.condition.includeSub) {
-          try {
-            await this.collectSubComments(pageUrl, note.id, comment, note.token)
-          } catch (error) {
-            console.warn("fetch sub comments failed", comment.id, error)
-          }
+        await this.collectEmbeddedSubComments(pageUrl, note.id, comment)
+
+        if (
+          this.condition.includeSub &&
+          !this.isApiDegraded(note.id) &&
+          needsSubCommentFetch(comment)
+        ) {
+          pendingSubRoots.push(comment)
         }
       }
 
-      if (!result.has_more || !result.cursor) break
-      cursor = result.cursor
-      await sleep()
+      if (!parsed.hasMore || parsed.isEmpty) break
+
+      cursor = parsed.cursor
+    }
+
+    // 阶段 2：逐 root 展开子评论（对齐浏览器点击「查看更多回复」）
+    if (this.condition.includeSub && !this.isApiDegraded(note.id)) {
+      for (const rootComment of pendingSubRoots) {
+        if (this.isApiDegraded(note.id)) break
+        if (this.getCurrCompleted(note.id) >= limit) break
+
+        // 略慢于翻页，模拟点开回复；requestWithRetry 内还有一次请求前等待
+        await this.waitInterval(subRootExtra.min, subRootExtra.max)
+        await this.collectSubComments(pageUrl, note.id, rootComment, xsecToken)
+      }
     }
   }
 }
