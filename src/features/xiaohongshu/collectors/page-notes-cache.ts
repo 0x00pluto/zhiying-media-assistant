@@ -1,5 +1,10 @@
 import type { ApiInterceptPayload } from "~shared/messaging/types"
 import type { XhsApiType } from "~shared/columns/types"
+import {
+  isXhsNoteId,
+  parseNoteUrl,
+  resolveXhsNoteId
+} from "~features/xiaohongshu/api/parsers"
 
 export const QMC_PAGE_NOTES_CHANGED_EVENT = "qmc:page-notes-changed"
 
@@ -36,11 +41,11 @@ function buildNoteUrl(
   source: "pc_feed" | "pc_search" | "pc_user"
 ) {
   const host = getHost()
-  return `https://${host}/explore/${id}?xsec_token=${token}&xsec_source=${source}`
+  return `https://${host}/explore/${id}?xsec_token=${encodeURIComponent(token)}&xsec_source=${source}`
 }
 
 function notifyChange() {
-  const count = getPageNotesStore().size
+  const count = getCollectiblePageNotesCount()
   window.dispatchEvent(
     new CustomEvent(QMC_PAGE_NOTES_CHANGED_EVENT, {
       detail: { count }
@@ -53,9 +58,7 @@ function normalizeFeedItem(item: Record<string, unknown>) {
     | Record<string, unknown>
     | undefined
 
-  const id = String(
-    item.id || item.note_id || item.noteId || noteCard?.note_id || ""
-  )
+  const id = resolveXhsNoteId(item, noteCard)
   const token = String(
     item.xsec_token || item.xsecToken || noteCard?.xsec_token || ""
   )
@@ -74,8 +77,19 @@ function isNoteFeedItem(item: Record<string, unknown>) {
 }
 
 function addNote(entry: PageNoteEntry) {
+  if (!isXhsNoteId(entry.id)) return false
+
   const store = getPageNotesStore()
-  if (!entry.id || store.has(entry.id)) return false
+  const existing = store.get(entry.id)
+  if (existing) {
+    if (entry.api === "homefeed_notes" && existing.api === "search_notes") {
+      store.set(entry.id, entry)
+      notifyChange()
+      return true
+    }
+    return false
+  }
+
   store.set(entry.id, entry)
   notifyChange()
   return true
@@ -105,7 +119,7 @@ function addFromUserPosted(notes: Array<Record<string, unknown>>) {
   for (const note of notes) {
     const id = String(note.note_id || note.noteId || "")
     const token = String(note.xsec_token || note.xsecToken || "")
-    if (!id || !token) continue
+    if (!isXhsNoteId(id) || !token) continue
 
     addNote({
       id,
@@ -174,7 +188,10 @@ export function bootstrapPageNotesFromPosted(
 }
 
 /** DOM 兜底：从已渲染卡片链接提取笔记 */
-export function scanDomNoteLinks(rootSelector?: string) {
+export function scanDomNoteLinks(
+  rootSelector?: string,
+  source: "pc_feed" | "pc_search" = "pc_feed"
+) {
   const root =
     (rootSelector ? document.querySelector(rootSelector) : null) ||
     document.querySelector("#exploreFeeds") ||
@@ -187,18 +204,14 @@ export function scanDomNoteLinks(rootSelector?: string) {
     if (!href) continue
 
     try {
-      const url = new URL(href, location.origin)
-      const match = url.pathname.match(/\/explore\/([^/?]+)/)
-      if (!match) continue
-
-      const token = url.searchParams.get("xsec_token") || ""
-      if (!token) continue
+      const parsed = parseNoteUrl(new URL(href, location.origin).href)
+      if (!isXhsNoteId(parsed.id) || !parsed.token) continue
 
       addNote({
-        id: match[1],
-        xsec_token: token,
-        url: url.href,
-        api: "homefeed_notes"
+        id: parsed.id,
+        xsec_token: parsed.token,
+        url: buildNoteUrl(parsed.id, parsed.token, source),
+        api: source === "pc_feed" ? "homefeed_notes" : "search_notes"
       })
     } catch {
       // ignore invalid href
@@ -210,12 +223,21 @@ export function getPageNotes(): PageNoteEntry[] {
   return Array.from(getPageNotesStore().values())
 }
 
+/** 仅含可 feed 采集的有效笔记（24 位 note_id） */
+export function getCollectiblePageNotes(): PageNoteEntry[] {
+  return getPageNotes().filter((note) => isXhsNoteId(note.id))
+}
+
 export function getPageNoteUrls(): string[] {
-  return getPageNotes().map((note) => note.url)
+  return getCollectiblePageNotes().map((note) => note.url)
 }
 
 export function getPageNotesCount(): number {
   return getPageNotesStore().size
+}
+
+export function getCollectiblePageNotesCount(): number {
+  return getCollectiblePageNotes().length
 }
 
 export function clearPageNotes() {
@@ -227,12 +249,12 @@ export function subscribePageNotes(callback: (count: number) => void) {
   const handler = (event: Event) => {
     const count =
       (event as CustomEvent<{ count: number }>).detail?.count ??
-      getPageNotesCount()
+      getCollectiblePageNotesCount()
     callback(count)
   }
 
   window.addEventListener(QMC_PAGE_NOTES_CHANGED_EVENT, handler)
-  callback(getPageNotesCount())
+  callback(getCollectiblePageNotesCount())
 
   return () => window.removeEventListener(QMC_PAGE_NOTES_CHANGED_EVENT, handler)
 }

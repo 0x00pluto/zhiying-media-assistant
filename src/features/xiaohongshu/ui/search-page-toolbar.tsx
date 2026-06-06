@@ -34,7 +34,7 @@ export function SearchPageToolbar({ keyword, tab }: Props) {
   const [keywordLoading, setKeywordLoading] = useState(false)
 
   useEffect(() => {
-    scanDomNoteLinks(".feeds-container")
+    scanDomNoteLinks(".feeds-container", "pc_search")
     return subscribePageNotes(() => {})
   }, [])
 
@@ -43,7 +43,7 @@ export function SearchPageToolbar({ keyword, tab }: Props) {
     if (!target) return
 
     const observer = new MutationObserver(() => {
-      scanDomNoteLinks(".feeds-container")
+      scanDomNoteLinks(".feeds-container", "pc_search")
     })
     observer.observe(target, { childList: true, subtree: true })
     return () => observer.disconnect()

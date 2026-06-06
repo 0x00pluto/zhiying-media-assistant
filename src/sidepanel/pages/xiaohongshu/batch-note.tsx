@@ -3,6 +3,10 @@ import { useEffect, useState } from "react"
 import { NOTE_COLUMNS } from "~features/xiaohongshu/columns/note"
 import type { NoteCollector } from "~features/xiaohongshu/collectors/note"
 import {
+  isXhsNoteId,
+  parseNoteUrl
+} from "~features/xiaohongshu/api/parsers"
+import {
   NOTE_BATCH_COLLECT_DISABLED_HINT,
   useNoteBatchCollectEnabled
 } from "~features/xiaohongshu/use-note-batch-enabled"
@@ -21,6 +25,17 @@ function parseLinkLines(text: string) {
     .split("\n")
     .map((s) => s.trim())
     .filter(Boolean)
+}
+
+function filterCollectibleUrls(urls: string[]) {
+  return urls.filter((url) => {
+    try {
+      const parsed = parseNoteUrl(url)
+      return isXhsNoteId(parsed.noteId || parsed.id)
+    } catch {
+      return false
+    }
+  })
 }
 
 function resolveInitialLimit(initialState?: Record<string, unknown>) {
@@ -63,7 +78,7 @@ export function BatchNotePage({ initialState }: Props) {
   const handleLinksChange = (text: string) => {
     setLinks(text)
     if (collectBy === "links") {
-      const count = parseLinkLines(text).length
+      const count = filterCollectibleUrls(parseLinkLines(text)).length
       if (count > 0) setLimit(count)
     }
   }
@@ -78,7 +93,9 @@ export function BatchNotePage({ initialState }: Props) {
     setWarning("")
     setRunning(true)
 
-    const urlList = parseLinkLines(links)
+    const rawUrlList = parseLinkLines(links)
+    const urlList =
+      collectBy === "links" ? filterCollectibleUrls(rawUrlList) : rawUrlList
     const effectiveLimit =
       collectBy === "links"
         ? Math.min(Math.max(limit, 1), urlList.length || limit)
@@ -92,16 +109,30 @@ export function BatchNotePage({ initialState }: Props) {
       sort: initialState?.sort || "general"
     }
 
+    if (initialState?.pageCollectType) {
+      condition.pageCollectType = initialState.pageCollectType
+    }
+
     if (collectBy === "keyword") {
       condition.keyword = keyword
     } else if (collectBy === "links") {
       condition.urls = urlList.slice(0, effectiveLimit)
       const pageNotes = initialState?.pageNotes as
-        | Array<{ id: string; url: string; noteCard?: Record<string, unknown> }>
+        | Array<{
+            id: string
+            url: string
+            xsec_token?: string
+            noteCard?: Record<string, unknown>
+            api?: string
+          }>
         | undefined
       if (pageNotes?.length) {
-        const urlSet = new Set(condition.urls as string[])
-        condition.pageNotes = pageNotes.filter((note) => urlSet.has(note.url))
+        const urlListSet = new Set(condition.urls as string[])
+        condition.pageNotes = pageNotes.filter(
+          (note) =>
+            urlListSet.has(note.url) ||
+            (condition.urls as string[]).some((item) => item.includes(note.id))
+        )
       }
     } else if (collectBy !== "homefeed") {
       condition.urls = urlList

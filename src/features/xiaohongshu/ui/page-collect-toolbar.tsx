@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import {
   bootstrapPageNotesFromFeeds,
   bootstrapPageNotesFromPosted,
+  clearPageNotes,
   scanDomNoteLinks,
   subscribePageNotes
 } from "~features/xiaohongshu/collectors/page-notes-cache"
@@ -22,6 +23,7 @@ type Props = {
 async function bootstrapPageNotes(pageType: PageCollectType) {
   try {
     if (pageType === "explore") {
+      clearPageNotes()
       const result = await getWindowValue({
         feeds: ["__INITIAL_STATE__", "feed", "feeds", "_rawValue"]
       })

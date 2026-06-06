@@ -1,5 +1,7 @@
 import type { ApiInterceptPayload } from "~shared/messaging/types"
 
+import { extractFeedItems, extractNoteCardFromFeedPayload } from "~features/xiaohongshu/api/response"
+
 const feedNoteCache = new Map<string, Record<string, unknown>>()
 
 /** 对齐原版 MRe：拦截页面发起的 feed 请求，缓存完整 note_card */
@@ -8,25 +10,16 @@ export function handleFeedApiResponse(payload: ApiInterceptPayload) {
     const url = new URL(payload.url)
     if (!url.pathname.endsWith("/api/sns/web/v1/feed")) return
 
-    const result = payload.result as
-      | {
-          data?: {
-            items?: Array<{
-              id?: string
-              note_card?: Record<string, unknown>
-            }>
-          }
-        }
-      | undefined
-    const item = result?.data?.items?.[0]
-    const noteCard = item?.note_card
+    const result = payload.result
+    const noteCard = extractNoteCardFromFeedPayload(result)
     if (!noteCard || Object.keys(noteCard).length === 0) return
 
     const body = payload.body as { source_note_id?: string } | undefined
+    const itemId = extractFeedItems(result)[0]?.id
     const noteId =
       body?.source_note_id ||
       (noteCard.note_id as string | undefined) ||
-      item?.id
+      (itemId != null ? String(itemId) : undefined)
     if (!noteId) return
 
     feedNoteCache.set(noteId, noteCard)

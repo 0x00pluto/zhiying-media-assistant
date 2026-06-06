@@ -10,7 +10,7 @@ import {
 } from "~shared/messaging/types"
 
 import { getDomainSuffix, installFetchHook, installXhrHook } from "./hooks"
-import { executeHttpRequest, installSmzsHttpRequest } from "./http"
+import { executeHttpRequest, installSmzsHttpRequest, tryHookWebpackHttpClient } from "./http"
 
 type SmzsHandlerMessage = {
   type: string
@@ -98,45 +98,17 @@ function installMessageHandlers() {
 }
 
 function hookWebpackHttpClient() {
-  window.addEventListener(
-    "load",
-    () => {
-      try {
-        for (const key of Object.keys(window)) {
-          if (!key.startsWith("webpackChunk")) continue
-          const chunk = (window as Record<string, unknown>)[key] as {
-            push?: (args: unknown[]) => unknown
-          }
-          if (typeof chunk?.push !== "function") continue
-
-          chunk.push([
-            [Symbol("qmc")],
-            {},
-            (modules: Record<string, { exports?: unknown }>) => {
-              for (const mod of Object.values(modules)) {
-                const exp = mod?.exports as {
-                  __esModule?: boolean
-                  get?: (...args: unknown[]) => unknown
-                  post?: (...args: unknown[]) => unknown
-                }
-                if (
-                  exp?.__esModule &&
-                  typeof exp.get === "function" &&
-                  typeof exp.post === "function"
-                ) {
-                  window._smzsHttpRequest = exp as Window["_smzsHttpRequest"]
-                  return
-                }
-              }
-            }
-          ])
-        }
-      } catch (error) {
-        console.warn("hook xiaohongshu http client failed", error)
-      }
-    },
-    { once: true }
-  )
+  tryHookWebpackHttpClient()
+  window.addEventListener("load", () => tryHookWebpackHttpClient(), {
+    once: true
+  })
+  let attempts = 0
+  const hookTimer = window.setInterval(() => {
+    attempts++
+    if (tryHookWebpackHttpClient() || attempts >= 15) {
+      window.clearInterval(hookTimer)
+    }
+  }, 2000)
 }
 
 export function bootstrapMainWorld() {

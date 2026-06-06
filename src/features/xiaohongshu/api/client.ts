@@ -1,6 +1,7 @@
 import { smzsRequest } from "~shared/messaging"
 import type { HttpRequestConfig } from "~shared/messaging/types"
 
+import { unwrapXhsResponsePayload } from "./response"
 import { XHS_ENDPOINTS } from "./endpoints"
 
 async function xhsRequest<T = unknown>(config: HttpRequestConfig): Promise<T> {
@@ -17,11 +18,12 @@ async function xhsRequest<T = unknown>(config: HttpRequestConfig): Promise<T> {
     throw new Error(response.error)
   }
 
-  const body = response.data as {
+  const body = unwrapXhsResponsePayload(response.data) as {
     code?: number
     success?: boolean
     data?: T
     msg?: string
+    items?: unknown
   }
 
   if (body && typeof body === "object") {
@@ -30,15 +32,22 @@ async function xhsRequest<T = unknown>(config: HttpRequestConfig): Promise<T> {
     if (code !== undefined && code > 0 && code !== 1000) {
       throw new Error(body.msg || `接口请求失败（${code}）`)
     }
+    if (
+      code === -1 &&
+      body.success === false &&
+      !("data" in body && body.data != null)
+    ) {
+      throw new Error(body.msg || "接口请求失败，请刷新小红书页面后重试")
+    }
     if (body.success === false && body.msg && (code === undefined || code >= 0)) {
       throw new Error(body.msg)
     }
-    if ("data" in body) {
+    if ("data" in body && body.data != null) {
       return body.data as T
     }
   }
 
-  return response.data as T
+  return body as T
 }
 
 export async function fetchNoteFeed(payload: {

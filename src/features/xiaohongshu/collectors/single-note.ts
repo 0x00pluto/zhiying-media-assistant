@@ -1,4 +1,5 @@
 import { fetchNoteFeed } from "~features/xiaohongshu/api/client"
+import { extractNoteCardFromFeedPayload } from "~features/xiaohongshu/api/response"
 import { parseNoteUrl } from "~features/xiaohongshu/api/parsers"
 import { NOTE_COLUMNS } from "~features/xiaohongshu/columns/note"
 import {
@@ -162,23 +163,22 @@ async function fetchNoteFromApi(
     // URL 不含 token 时从页面数据补全
   }
 
-  if (!token) {
-    const user = pageNote?.user as Record<string, unknown> | undefined
-    token = String(pageNote?.xsec_token || user?.xsec_token || "")
+  if (!token && pageNote?.xsec_token) {
+    token = String(pageNote.xsec_token)
   }
   if (!source || source === "pc_feed") {
     source = String(pageNote?.xsec_source || source || "pc_feed")
   }
 
-  const feed = (await fetchNoteFeed({
+  const feed = await fetchNoteFeed({
     source_note_id: noteId,
     image_formats: ["jpg", "webp", "avif"],
     extra: { need_body_topic: "1" },
     xsec_source: source,
     xsec_token: token
-  })) as { items?: Array<{ note_card?: Record<string, unknown> }> }
+  })
 
-  const noteCard = feed.items?.[0]?.note_card
+  const noteCard = extractNoteCardFromFeedPayload(feed)
   if (!noteCard) return undefined
 
   return {

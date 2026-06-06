@@ -5,9 +5,10 @@ import { useEffect, useState } from "react"
 import {
   bootstrapPageNotesFromFeeds,
   bootstrapPageNotesFromPosted,
+  clearPageNotes,
+  getCollectiblePageNotes,
+  getCollectiblePageNotesCount,
   getPageNoteUrls,
-  getPageNotes,
-  getPageNotesCount,
   scanDomNoteLinks,
   subscribePageNotes
 } from "~features/xiaohongshu/collectors/page-notes-cache"
@@ -45,7 +46,7 @@ async function refreshBootstrap(pageType: PageCollectType) {
     }
 
     if (pageType === "search") {
-      scanDomNoteLinks(".feeds-container")
+      scanDomNoteLinks(".feeds-container", "pc_search")
       return
     }
 
@@ -69,6 +70,10 @@ export function CollectPageNotesModal({ open, pageType, onClose }: Props) {
   useEffect(() => {
     if (!open) return
 
+    // 仅发现页需要清缓存（避免搜索页 pc_search 污染）；搜索页笔记靠 API 拦截累积，不能清空
+    if (pageType === "explore") {
+      clearPageNotes()
+    }
     void refreshBootstrap(pageType)
     return subscribePageNotes(setCount)
   }, [open, pageType])
@@ -94,7 +99,7 @@ export function CollectPageNotesModal({ open, pageType, onClose }: Props) {
       return
     }
 
-    const pageNotes = getPageNotes()
+    const pageNotes = getCollectiblePageNotes()
     const urls = pageNotes.map((note) => note.url)
     if (!urls.length) {
       message.warning("数据为空，无法采集")
@@ -108,13 +113,16 @@ export function CollectPageNotesModal({ open, pageType, onClose }: Props) {
         options: {
           state: {
             name: TASK_NAME[pageType],
+            pageCollectType: pageType,
             collectBy: "links",
             urls,
             limit: urls.length,
             pageNotes: pageNotes.map((note) => ({
               id: note.id,
               url: note.url,
-              noteCard: note.noteCard
+              xsec_token: note.xsec_token,
+              noteCard: note.noteCard,
+              api: note.api
             }))
           }
         }
@@ -204,7 +212,7 @@ export function CollectPageNotesModal({ open, pageType, onClose }: Props) {
         <p style={{ margin: "8px 0 0", fontSize: 13, color: "#6b7280" }}>
           检测到{" "}
           <strong style={{ fontSize: 28, color: "#ff2442", lineHeight: 1 }}>
-            {open ? count : getPageNotesCount()}
+            {open ? count : getCollectiblePageNotesCount()}
           </strong>{" "}
           条笔记
         </p>
