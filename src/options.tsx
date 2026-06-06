@@ -147,7 +147,7 @@ function OptionsPage() {
           <>
             <h2 style={{ marginTop: 0 }}>飞书同步配置</h2>
             <p style={{ color: "#64748b", lineHeight: 1.6 }}>
-              使用自建飞书应用凭证，不接入 socialext 平台。
+              在飞书开放平台创建企业自建应用，填写 App ID 与 App Secret 后即可同步到多维表格。
             </p>
             <label style={labelStyle}>
               App ID

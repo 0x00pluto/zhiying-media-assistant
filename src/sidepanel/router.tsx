@@ -1,12 +1,14 @@
+import { SettingOutlined } from "@ant-design/icons"
 import { Button } from "antd"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
-import { PlaceholderPage } from "./pages/general/placeholder"
+import iconUrl from "url:~/assets/icon.png"
+
 import { BatchBloggerPage } from "./pages/xiaohongshu/batch-blogger"
 import { BatchCommentPage } from "./pages/xiaohongshu/batch-comment"
 import { BatchNotePage } from "./pages/xiaohongshu/batch-note"
 import { XiaohongshuHome } from "./pages/xiaohongshu/index"
-import { UrlTransformPage } from "./pages/xiaohongshu/url-transform"
+import { getExtensionName } from "~shared/extension-title"
 import { consumePendingSidepanelRoute } from "~shared/sidepanel-route"
 
 type RouteState = {
@@ -16,11 +18,18 @@ type RouteState = {
 
 const DEFAULT_ROUTE: RouteState = { path: "/xiaohongshu" }
 
-const PLACEHOLDER_TITLES: Record<string, string> = {
-  "/general/data-center/account": "账号管理",
-  "/general/data-center/collect-history": "采集历史",
-  "/general/data-center/task-alarm": "任务闹钟"
-}
+const BATCH_ROUTES = new Set([
+  "/xiaohongshu/batch-collect/note",
+  "/xiaohongshu/batch-collect/blogger",
+  "/xiaohongshu/batch-collect/comment"
+])
+
+const REMOVED_ROUTES = new Set([
+  "/xiaohongshu/other/url-transform",
+  "/general/data-center/account",
+  "/general/data-center/collect-history",
+  "/general/data-center/task-alarm"
+])
 
 async function applyNavigatePayload(
   payload: {
@@ -34,8 +43,10 @@ async function applyNavigatePayload(
     await chrome.storage.session.set({ "qmc:activeXhsTabId": payload.tabId })
   }
 
+  const path = REMOVED_ROUTES.has(payload.to) ? DEFAULT_ROUTE.path : payload.to
+
   setRoute({
-    path: payload.to,
+    path,
     state: payload.options?.state
   })
 }
@@ -71,7 +82,8 @@ export function SidepanelRouter() {
 
     window.router = {
       navigate: (to, options) => {
-        setRoute({ path: to, state: options?.state })
+        const path = REMOVED_ROUTES.has(to) ? DEFAULT_ROUTE.path : to
+        setRoute({ path, state: options?.state })
       },
       location: { pathname: "/xiaohongshu" }
     }
@@ -84,6 +96,12 @@ export function SidepanelRouter() {
   useEffect(() => {
     if (window.router) {
       window.router.location = { pathname: route.path }
+    }
+  }, [route.path])
+
+  useEffect(() => {
+    if (REMOVED_ROUTES.has(route.path)) {
+      setRoute(DEFAULT_ROUTE)
     }
   }, [route.path])
 
@@ -101,25 +119,12 @@ export function SidepanelRouter() {
     case "/xiaohongshu/batch-collect/comment":
       content = <BatchCommentPage initialState={route.state} />
       break
-    case "/xiaohongshu/other/url-transform":
-      content = <UrlTransformPage />
-      break
     default:
-      if (PLACEHOLDER_TITLES[route.path]) {
-        content = (
-          <PlaceholderPage
-            title={PLACEHOLDER_TITLES[route.path]}
-            onBack={goBack}
-          />
-        )
-      } else {
-        content = <XiaohongshuHome onNavigate={navigate} />
-      }
+      content = <XiaohongshuHome />
       break
   }
 
-  const showBack =
-    route.path !== "/xiaohongshu" && !PLACEHOLDER_TITLES[route.path]
+  const showBack = BATCH_ROUTES.has(route.path)
 
   return (
     <div className="sidepanel-body">
@@ -137,12 +142,27 @@ export function SidepanelRouter() {
 }
 
 export function SidepanelHeader() {
+  const extName = useMemo(() => getExtensionName(), [])
+
   return (
     <header className="sidepanel-header">
-      <h1 className="sidepanel-header__title">智赢媒体助手 - 小红书</h1>
-      <Button type="text" aria-label="设置" onClick={() => chrome.runtime.openOptionsPage()}>
-        设置
-      </Button>
+      <div className="sidepanel-header__brand">
+        <img
+          className="sidepanel-header__logo"
+          src={iconUrl}
+          alt=""
+          width={28}
+          height={28}
+        />
+        <h1 className="sidepanel-header__title">{extName}</h1>
+      </div>
+      <Button
+        type="text"
+        icon={<SettingOutlined />}
+        className="sidepanel-header__settings"
+        aria-label="打开扩展设置"
+        onClick={() => chrome.runtime.openOptionsPage()}
+      />
     </header>
   )
 }

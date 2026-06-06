@@ -100,7 +100,7 @@ async function readNoteDetailMap() {
   return (result?.noteDetailMap || null) as Record<string, NoteDetailEntry> | null
 }
 
-async function fetchNoteDetailEntry(noteId: string) {
+export async function fetchNoteDetailEntry(noteId: string) {
   const result = await getWindowValue({
     entry: ["__INITIAL_STATE__", "note", "noteDetailMap", noteId]
   })

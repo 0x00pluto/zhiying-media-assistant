@@ -88,10 +88,6 @@ export async function downloadFile(options: chrome.downloads.DownloadOptions) {
   })
 }
 
-export async function getAuthToken() {
-  return sendToBackground<{ token: string }>({ name: "get-auth-token" })
-}
-
 export async function getRealUrl(url: string) {
   return sendToBackground<{ url: string }>({
     name: "get-real-url",
