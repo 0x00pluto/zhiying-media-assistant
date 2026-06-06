@@ -12,6 +12,12 @@ import {
   shouldDegradeCommentPage,
   type CommentListParseResult
 } from "~features/xiaohongshu/collectors/comment-api-helpers"
+import {
+  isUnderCollectLimit,
+  getProgressCompletedCount,
+  META_ROOT_COMMENT_ID,
+  shouldLimitSubCommentRecords
+} from "~features/xiaohongshu/collectors/comment-collect-limit"
 import { COMMENT_COLUMNS } from "~features/xiaohongshu/columns/comment"
 import type { FieldOptions } from "~features/feishu/sync-records"
 import type { XhsApiType } from "~shared/columns/types"
@@ -34,7 +40,6 @@ type AddRecordInput = {
   rootComment?: Record<string, unknown>
 }
 
-const META_ROOT_COMMENT_ID = "_root_comment_id"
 const META_TARGET_COMMENT_ID = "_target_comment_id"
 
 function toRootCommentData(source: Record<string, unknown>) {
@@ -153,8 +158,9 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
       (this.condition.urls?.length || 0) * (this.condition.limitPerId || 100)
 
     if (
-      this.status === TaskStatus.COMPLETED ||
-      this.status === TaskStatus.FAILED
+      (this.status === TaskStatus.COMPLETED ||
+        this.status === TaskStatus.FAILED) &&
+      !this.condition.includeSub
     ) {
       return this.getCompleted() || planned
     }
@@ -162,8 +168,24 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
     return planned
   }
 
+  getCompleted() {
+    return getProgressCompletedCount(
+      this.records,
+      this.condition.includeSub
+    )
+  }
+
   getCurrCompleted(noteId: string) {
     return this.records.filter((record) => record.note_id === noteId).length
+  }
+
+  private isUnderCollectLimit(noteId: string, limit: number) {
+    return isUnderCollectLimit({
+      records: this.records,
+      noteId,
+      limit,
+      includeSub: this.condition.includeSub
+    })
   }
 
   async execute() {
@@ -318,9 +340,13 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
     noteId: string,
     rootComment: Record<string, unknown>
   ) {
+    const limit = this.condition.limitPerId || 100
     for (const subComment of getEmbeddedSubComments(rootComment)) {
       if (this.isApiDegraded(noteId)) return
-      if (this.getCurrCompleted(noteId) >= (this.condition.limitPerId || 100)) {
+      if (
+        shouldLimitSubCommentRecords(this.condition.includeSub) &&
+        this.getCurrCompleted(noteId) >= limit
+      ) {
         return
       }
       await this.addRecord({
@@ -348,11 +374,15 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
       rootComment.sub_comment_cursor ?? rootComment.subCommentCursor ?? ""
     )
     const rootCommentId = String(rootComment.id)
+    const limit = this.condition.limitPerId || 100
+    const limitSubRecords = shouldLimitSubCommentRecords(
+      this.condition.includeSub
+    )
 
-    while (
-      !this.isApiDegraded(noteId) &&
-      this.getCurrCompleted(noteId) < (this.condition.limitPerId || 100)
-    ) {
+    while (!this.isApiDegraded(noteId)) {
+      if (limitSubRecords && this.getCurrCompleted(noteId) >= limit) {
+        return
+      }
       let result: unknown
 
       try {
@@ -382,7 +412,7 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
 
       for (const subComment of parsed.comments) {
         if (this.isApiDegraded(noteId)) return
-        if (this.getCurrCompleted(noteId) >= (this.condition.limitPerId || 100)) {
+        if (limitSubRecords && this.getCurrCompleted(noteId) >= limit) {
           return
         }
         await this.addRecord({
@@ -410,7 +440,7 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
     // 阶段 1：滚动式一级 comment/page（对齐浏览器，不在此阶段打 sub/page）
     while (
       !this.isApiDegraded(note.id) &&
-      this.getCurrCompleted(note.id) < limit
+      this.isUnderCollectLimit(note.id, limit)
     ) {
       let result: unknown
 
@@ -441,7 +471,7 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
 
       for (const comment of parsed.comments) {
         if (this.isApiDegraded(note.id)) break
-        if (this.getCurrCompleted(note.id) >= limit) break
+        if (!this.isUnderCollectLimit(note.id, limit)) break
 
         await this.addRecord({
           data: comment,
@@ -470,7 +500,6 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
     if (this.condition.includeSub && !this.isApiDegraded(note.id)) {
       for (const rootComment of pendingSubRoots) {
         if (this.isApiDegraded(note.id)) break
-        if (this.getCurrCompleted(note.id) >= limit) break
 
         // 略慢于翻页，模拟点开回复；requestWithRetry 内还有一次请求前等待
         await this.waitInterval(subRootExtra.min, subRootExtra.max)

@@ -215,15 +215,23 @@ export function BatchCommentPage({ initialState }: Props) {
         </Form.Item>
 
         <Form.Item
-          label={`导出数量（不超过评论总数 ${maxCommentCount || 0} 条）`}
+          label={
+            includeSub
+              ? "导出数量（一级评论）"
+              : `导出数量（不超过评论总数 ${maxCommentCount || 0} 条）`
+          }
           extra={
             maxCommentCount > 0 ? (
               <Typography.Text type="secondary">
-                当前笔记共有 {maxCommentCount} 条评论
+                {includeSub
+                  ? `当前笔记共有 ${maxCommentCount} 条评论；导出数量限制一级评论，子评论全量展开`
+                  : `当前笔记共有 ${maxCommentCount} 条评论`}
               </Typography.Text>
             ) : (
               <Typography.Text type="secondary">
-                每篇笔记最多导出的评论条数（含子评论）
+                {includeSub
+                  ? "每篇笔记最多导出的一级评论条数（子评论全量展开，不计入数量）"
+                  : "每篇笔记最多导出的评论条数（含子评论）"}
               </Typography.Text>
             )
           }>

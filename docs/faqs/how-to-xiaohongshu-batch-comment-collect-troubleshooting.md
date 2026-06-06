@@ -10,6 +10,7 @@
 - 开启「采集子评论」时 Network 出现 **1 次 `comment/page` 后立即 burst 多条 `sub/page`**（同页 10 条一级各打一条 sub 链）
 - 侧边栏黄色提示：`已采集 N 条，未达目标数量：…`（`partialStopReason`）；已采数据仍可导出 CSV
 - 修复风控后采集过慢（曾出现翻页前后双等待叠加，约 5~6 分钟）
+- 开启「采集子评论」、表格「子评论数」显示 14 但只采到 1 条，Network 无 `comment/sub/page`（阶段 2 被 limit 阻断）
 
 **根本原因：**
 
@@ -27,6 +28,9 @@
 
 5. **间隔叠加（次要，已调优）**  
    翻页后再叠一层 `waitInterval` 会导致过慢；子评论模式基础间隔现为 1~2s，root 间额外 0~1s。
+
+6. **`limitPerId` 与两阶段计数冲突（已修复）**  
+   开启子评论时，若 embedded 子评论与一级评论共用总数上限，阶段 1 结束即 `10/10`，阶段 2 入口因 `getCurrCompleted >= limit` 跳过全部 `sub/page`。修复后：**includeSub 时 limit 仅约束一级评论数**，子评论全量展开且不计入 limit；阶段 2 不再因 limit 满而跳过。
 
 **解决方案：**
 
@@ -114,7 +118,7 @@ if (shouldDegradeCommentPage(parsed)) {
 
 - **入口**：笔记详情 / 侧边栏批量评论；`includeSub` 开关表示是否深度采子评论（阶段 2）
 - **间隔常量**（`COMMENT_COLLECT_INTERVAL`）：默认 1~3s；含子评论 1~2s；root 额外 0~1s
-- **limit 计数**：子评论仍计入 `limitPerId`，与现行为一致
+- **limit 计数**：开启 `includeSub` 时 `limitPerId` **仅约束一级评论**；embedded 与 `sub/page` 子评论全量展开、不计入 limit。关闭 `includeSub` 时 embedded 子评论仍计入 limit，且不跑阶段 2
 - **部分成功**：熔断后侧边栏黄色 `partialWarning`，可导出已采 CSV
 
 **排查 checklist：**
@@ -131,6 +135,7 @@ if (shouldDegradeCommentPage(parsed)) {
 |------|------|
 | 采集器主流程 | `src/features/xiaohongshu/collectors/comment.ts` |
 | 解析 / 熔断判定 / 间隔常量 | `src/features/xiaohongshu/collectors/comment-api-helpers.ts` |
+| limit 与 includeSub 计数 | `src/features/xiaohongshu/collectors/comment-collect-limit.ts` |
 | 侧边栏 UI / includeSub / partial 提示 | `src/sidepanel/pages/xiaohongshu/batch-comment.tsx` |
 | comment/sub API | `src/features/xiaohongshu/api/client.ts` |
 
