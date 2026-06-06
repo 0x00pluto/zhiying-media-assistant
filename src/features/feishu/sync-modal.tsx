@@ -35,6 +35,7 @@ export type FeishuSyncModalProps = {
   onClose: () => void
   columns: ColumnDef[]
   records: Record<string, unknown>[]
+  recordsLoading?: boolean
   storageKey?: string
   skipDialogKey?: string
   defaultFieldOptions?: FieldOptions
@@ -109,6 +110,7 @@ export function FeishuSyncModal({
   onClose,
   columns,
   records,
+  recordsLoading = false,
   storageKey = "qmc-feishu-target:default",
   skipDialogKey,
   defaultFieldOptions
@@ -236,6 +238,11 @@ export function FeishuSyncModal({
   }
 
   const handleSync = async (values: FormValues) => {
+    if (recordsLoading) {
+      message.warning("正在读取笔记，请稍候")
+      return false
+    }
+
     if (!records.length) {
       message.warning("没有可同步的数据")
       return false
@@ -304,7 +311,12 @@ export function FeishuSyncModal({
   }
 
   const uniqueColumnName = columns[0]?.name || "主键"
-  const spinTip = loading ? "正在同步中..." : !prefsReady ? "加载中..." : undefined
+  const spinTip = loading
+    ? "正在同步中..."
+    : !prefsReady
+      ? "加载中..."
+      : undefined
+  const formBusy = loading || !prefsReady
 
   const urlOptions = useMemo(() => buildUrlOptions(histories), [histories])
 
@@ -343,6 +355,7 @@ export function FeishuSyncModal({
       okText="确定"
       cancelText="取消"
       confirmLoading={loading}
+      okButtonProps={{ disabled: recordsLoading || !records.length }}
       {...getFeishuModalProps()}
       footer={(_, { OkBtn, CancelBtn }) => (
         <>
@@ -359,8 +372,21 @@ export function FeishuSyncModal({
           <OkBtn />
         </>
       )}>
-      <Spin spinning={loading || !prefsReady} tip={spinTip}>
+      <Spin spinning={formBusy} tip={spinTip}>
         <Form form={form} layout="horizontal" labelCol={{ span: 6 }} style={{ marginTop: 16 }}>
+          {recordsLoading ? (
+            <div
+              style={{
+                marginBottom: 12,
+                padding: "8px 12px",
+                fontSize: 12,
+                color: "#1677ff",
+                background: "#e6f4ff",
+                borderRadius: 6
+              }}>
+              正在读取笔记…
+            </div>
+          ) : null}
           <Form.Item
             label="表格链接"
             required

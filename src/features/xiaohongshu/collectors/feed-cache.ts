@@ -3,8 +3,11 @@ import type { ApiInterceptPayload } from "~shared/messaging/types"
 import { flattenNoteCard } from "~features/xiaohongshu/collectors/note-enrich"
 import {
   extractFeedItemsFromPayload,
+  hasFeedTextContent,
+  hasInteractCounts,
   parseFeedNoteCard
 } from "~features/xiaohongshu/feed/parse-feed-note"
+import { resolveVideoUrl } from "~features/xiaohongshu/media/extract"
 
 const feedNoteCache = new Map<string, Record<string, unknown>>()
 
@@ -36,6 +39,15 @@ export function handleFeedApiResponse(payload: ApiInterceptPayload) {
 
 export function getCachedFeedNote(noteId: string) {
   return feedNoteCache.get(noteId)
+}
+
+/** 页面 feed 拦截缓存是否可直接用于单条笔记采集（跳过重复 API） */
+export function isCachedFeedNoteUsableForDetail(noteCard: Record<string, unknown>) {
+  if (!noteCard || Object.keys(noteCard).length === 0) return false
+  if (!hasInteractCounts(noteCard)) return false
+  if (!hasFeedTextContent(noteCard)) return false
+  if (noteCard.type === "video" && !resolveVideoUrl(noteCard)) return false
+  return true
 }
 
 /** 笔记弹层打开后 feed 请求可能稍晚返回，短暂等待拦截缓存 */

@@ -345,8 +345,31 @@ function isUsableDomVideoUrl(url?: string) {
   return /^https?:\/\//.test(url) && url.includes("xhscdn")
 }
 
-function collectDomVideoUrls() {
+function isLikelyVideoResourceUrl(url: string) {
+  if (!isUsableDomVideoUrl(url)) return false
+  if (url.includes("sns-video")) return true
+  return url.includes("/stream/") && /\.mp4(\?|$)/i.test(url)
+}
+
+function collectResourceVideoUrls() {
   const urls: string[] = []
+  try {
+    const entries = performance.getEntriesByType(
+      "resource"
+    ) as PerformanceResourceTiming[]
+    for (const entry of entries) {
+      if (isLikelyVideoResourceUrl(entry.name)) {
+        urls.push(entry.name)
+      }
+    }
+  } catch {
+    // performance API unavailable
+  }
+  return urls
+}
+
+function collectDomVideoUrls() {
+  const urls: string[] = [...collectResourceVideoUrls()]
   const video = document.querySelector<HTMLVideoElement>(
     '#noteContainer video[mediatype="video"], #noteContainer video'
   )
@@ -360,7 +383,7 @@ function collectDomVideoUrls() {
     if (isUsableDomVideoUrl(src)) urls.push(src)
   })
 
-  return urls
+  return [...new Set(urls)]
 }
 
 function buildVideoObjectFromUrl(url: string) {
@@ -386,7 +409,12 @@ async function extractVideoFromState(noteId?: string) {
 }
 
 async function extractVideoFromDom(noteId?: string) {
-  const domUrls = collectDomVideoUrls()
+  let domUrls = collectDomVideoUrls()
+  if (!domUrls.length) {
+    await new Promise((resolve) => window.setTimeout(resolve, 800))
+    domUrls = collectDomVideoUrls()
+  }
+
   if (domUrls.length) {
     return buildVideoObjectFromUrl(domUrls[0])
   }

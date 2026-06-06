@@ -9,7 +9,8 @@ import {
   mergeNoteSources
 } from "~features/xiaohongshu/collectors/note-enrich"
 import { buildFeedNoteRecord } from "~features/xiaohongshu/records/build-feed-record"
-import { getCachedFeedNoteFromPage } from "~shared/messaging"
+import { resolveVideoUrl } from "~features/xiaohongshu/media/extract"
+import { getCachedFeedNoteFromPage, waitForCachedFeedNoteFromPage } from "~shared/messaging"
 
 import { fetchNoteDetail } from "./fetch-note-detail"
 import { hasFeedTextContent, hasInteractCounts } from "./parse-feed-note"
@@ -30,6 +31,8 @@ export type CollectNoteByUrlOptions = {
   pageNote?: Record<string, unknown>
   detailEntry?: Record<string, unknown>
   prefetchedFeedNote?: Record<string, unknown>
+  /** feed 拦截缓存已完整时跳过 DOM 富化（含 800ms 视频等待） */
+  skipDomEnrichment?: boolean
   host?: string
 }
 
@@ -67,6 +70,8 @@ function readCommentCount(merged: Record<string, unknown>) {
   const parsed = parseInt(String(interact.comment_count), 10)
   return Number.isNaN(parsed) ? undefined : parsed
 }
+
+const CACHE_WAIT_MS = 2000
 
 async function enrichFeedTextFromPage(
   noteId: string,
@@ -122,15 +127,21 @@ export async function collectNoteByUrl(
     ? buildNoteExploreUrl(feedNoteId, token, source, host)
     : options.url
 
-  const feedResult = await fetchNoteDetail(
-    buildFeedRequest(feedUrl, feedNoteId, options.seed, {
-      forcePcFeed: options.forcePcFeed
-    })
-  )
+  const feedRequest = buildFeedRequest(feedUrl, feedNoteId, options.seed, {
+    forcePcFeed: options.forcePcFeed
+  })
+  const fetchOptions = {
+    prefetchedFeedNote: options.prefetchedFeedNote,
+    skipCacheWait: Boolean(options.prefetchedFeedNote)
+  }
+
+  const feedResult = await fetchNoteDetail(feedRequest, fetchOptions)
 
   let feedNote = options.prefetchedFeedNote
   if (feedResult.noteCard) {
     feedNote = feedResult.noteCard
+  } else if (!feedNote && feedResult.error) {
+    console.warn("[qmc] fetchNoteDetail", feedNoteId, feedResult.error)
   }
 
   const pageNote =
@@ -149,8 +160,19 @@ export async function collectNoteByUrl(
     )
   }
 
-  if (options.scene === "single") {
+  if (options.scene === "single" && !options.skipDomEnrichment) {
     merged = await applyDomEnrichment(merged, feedNoteId)
+
+    if (merged.type === "video" && !resolveVideoUrl(merged)) {
+      const cached =
+        (feedNote && resolveVideoUrl(feedNote) ? feedNote : undefined) ||
+        options.prefetchedFeedNote ||
+        (await waitForCachedFeedNoteFromPage(feedNoteId, CACHE_WAIT_MS))
+      if (cached) {
+        merged = mergeNoteSources(pageNote, cached, options.detailEntry)
+        merged = await applyDomEnrichment(merged, feedNoteId)
+      }
+    }
   }
 
   if (!merged || Object.keys(merged).length === 0) return null

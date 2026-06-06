@@ -1,12 +1,68 @@
 import { parseNoteUrl } from "~features/xiaohongshu/api/parsers"
 import { NOTE_COLUMNS } from "~features/xiaohongshu/columns/note"
-import { waitForCachedFeedNote } from "~features/xiaohongshu/collectors/feed-cache"
-import { mergeNoteSources } from "~features/xiaohongshu/collectors/note-enrich"
+import {
+  extractInteractFromDom,
+  mergeNoteSources
+} from "~features/xiaohongshu/collectors/note-enrich"
+import { isCachedFeedNoteUsableForDetail } from "~features/xiaohongshu/collectors/feed-cache"
 import { collectNoteByUrl } from "~features/xiaohongshu/feed/collect-note-by-url"
 import { buildFeedNoteRecord } from "~features/xiaohongshu/records/build-feed-record"
-import { getWindowValue } from "~shared/messaging"
+import {
+  getCachedFeedNoteFromPage,
+  getWindowValue,
+  waitForCachedFeedNoteFromPage
+} from "~shared/messaging"
 
 export { buildFeedNoteRecord as buildNoteRecord }
+
+const FEED_CACHE_WAIT_MS = 2000
+
+function parseCommentCount(value?: string) {
+  if (!value) return undefined
+  const normalized = value.replace(/[^\d]/g, "")
+  if (!normalized) return undefined
+  const parsed = parseInt(normalized, 10)
+  return Number.isNaN(parsed) ? undefined : parsed
+}
+
+function readCommentCountFromDom() {
+  const interact = extractInteractFromDom()
+  const fromInteract = parseCommentCount(interact?.comment_count)
+  if (fromInteract) return fromInteract
+
+  const root = document.querySelector("#noteContainer")
+  const match = root?.textContent?.match(/共\s*([\d.+万千wkWK,]+)\s*条评论/)
+  return parseCommentCount(match?.[1])
+}
+
+function readNoteTitleFromDom(noteId: string) {
+  const selectors = [
+    "#noteContainer .title",
+    "#noteContainer .note-text",
+    "#noteContainer [class*='note-title']",
+    "#noteContainer [class*='title']"
+  ]
+  for (const selector of selectors) {
+    const text = document.querySelector(selector)?.textContent?.trim()
+    if (text && text.length < 200) return text
+  }
+  return `笔记 ${noteId}`
+}
+
+/** 导出评论跳转所需的最小上下文（无需完整 feed 采集） */
+export function resolveCommentExportContext(noteId?: string) {
+  const id = resolveNoteId(noteId)
+  if (!id) {
+    throw new Error("无法识别笔记 ID")
+  }
+
+  return {
+    noteId: id,
+    noteUrl: resolveNoteUrl(id),
+    title: readNoteTitleFromDom(id),
+    commentCount: readCommentCountFromDom()
+  }
+}
 
 type NoteDetailEntry = {
   note?: Record<string, unknown>
@@ -143,6 +199,41 @@ export async function fetchNoteFromPage(noteId: string) {
   return undefined
 }
 
+async function resolveFeedCacheForCollect(noteId: string) {
+  let cached = await getCachedFeedNoteFromPage(noteId)
+  if (cached && isCachedFeedNoteUsableForDetail(cached)) {
+    return cached
+  }
+
+  if (!cached) {
+    cached = await waitForCachedFeedNoteFromPage(noteId, FEED_CACHE_WAIT_MS)
+    if (cached && isCachedFeedNoteUsableForDetail(cached)) {
+      return cached
+    }
+  }
+
+  return cached
+}
+
+function buildCollectResult(
+  id: string,
+  noteUrl: string,
+  result: NonNullable<Awaited<ReturnType<typeof collectNoteByUrl>>>
+) {
+  if (result.feedError) {
+    console.warn("[qmc] fetchNoteDetail failed", id, result.feedError)
+  }
+
+  return {
+    noteId: result.noteId,
+    noteUrl,
+    userUrl: result.userUrl,
+    rawNote: result.merged,
+    record: result.record,
+    commentCount: result.commentCount
+  }
+}
+
 export async function collectSingleNote(noteId?: string) {
   const id = resolveNoteId(noteId)
   if (!id) {
@@ -150,10 +241,27 @@ export async function collectSingleNote(noteId?: string) {
   }
 
   const noteUrl = resolveNoteUrl(id)
-  const [pageNote, detailEntry, cachedFeedNote] = await Promise.all([
+  const cachedFeedNote = await resolveFeedCacheForCollect(id)
+
+  if (cachedFeedNote && isCachedFeedNoteUsableForDetail(cachedFeedNote)) {
+    const result = await collectNoteByUrl({
+      url: noteUrl,
+      scene: "single",
+      prefetchedFeedNote: cachedFeedNote,
+      skipDomEnrichment: true,
+      host: location.origin
+    })
+
+    if (!result) {
+      throw new Error("获取笔记信息失败，请刷新页面后重试")
+    }
+
+    return buildCollectResult(id, noteUrl, result)
+  }
+
+  const [pageNote, detailEntry] = await Promise.all([
     fetchCurrNote(id),
-    fetchNoteDetailEntry(id),
-    waitForCachedFeedNote(id)
+    fetchNoteDetailEntry(id)
   ])
 
   let result
@@ -175,22 +283,10 @@ export async function collectSingleNote(noteId?: string) {
     throw new Error("获取笔记信息失败，请刷新页面后重试")
   }
 
-  if (result.feedError) {
-    console.warn("[qmc] fetchNoteDetail failed", id, result.feedError)
-  }
-
-  return {
-    noteId: result.noteId,
-    noteUrl,
-    userUrl: result.userUrl,
-    rawNote: result.merged,
-    record: result.record,
-    commentCount: result.commentCount
-  }
+  return buildCollectResult(id, noteUrl, result)
 }
 
-export async function copyNoteInfo(noteId?: string) {
-  const { record } = await collectSingleNote(noteId)
+export function formatNoteInfoTsv(record: Record<string, unknown>) {
   const columns = NOTE_COLUMNS.filter((c) => c.default !== false)
   const header = columns.map((c) => c.name).join("\t")
   const row = columns
@@ -201,6 +297,14 @@ export async function copyNoteInfo(noteId?: string) {
     })
     .join("\t")
 
-  await navigator.clipboard.writeText(`${header}\n${row}`)
-  return record
+  return `${header}\n${row}`
+}
+
+export async function copyNoteInfo(
+  noteId?: string,
+  record?: Record<string, unknown>
+) {
+  const resolved = record ?? (await collectSingleNote(noteId)).record
+  await navigator.clipboard.writeText(formatNoteInfoTsv(resolved))
+  return resolved
 }

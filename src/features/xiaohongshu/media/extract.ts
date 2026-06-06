@@ -192,10 +192,35 @@ export type NoteMediaFile = {
   type: "image" | "video" | "cover"
 }
 
-export function extractNoteMediaFiles(
+export type ExtractNoteMediaOptions = {
+  /** 视频笔记下载：仅返回 mp4，不包含封面/图片 */
+  videoOnly?: boolean
+}
+
+export function extractVideoFile(
   note: Record<string, unknown>,
   noteId: string
+): NoteMediaFile | undefined {
+  const title = String(note.title || note.display_title || noteId).slice(0, 40)
+  const videoUrl = resolveVideoUrl(note)
+  if (!videoUrl) return undefined
+  return {
+    url: videoUrl,
+    filename: `${title}.mp4`,
+    type: "video"
+  }
+}
+
+export function extractNoteMediaFiles(
+  note: Record<string, unknown>,
+  noteId: string,
+  options?: ExtractNoteMediaOptions
 ): NoteMediaFile[] {
+  if (options?.videoOnly) {
+    const video = extractVideoFile(note, noteId)
+    return video ? [video] : []
+  }
+
   const files: NoteMediaFile[] = []
   const title = String(note.title || note.display_title || noteId).slice(0, 40)
 
