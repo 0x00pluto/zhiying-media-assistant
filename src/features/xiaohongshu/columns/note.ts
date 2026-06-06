@@ -1,6 +1,6 @@
 import type { ColumnDef } from "~shared/columns/types"
 import { parseFeishuNumber } from "~features/feishu/field-mapper"
-import { normalizeTopicList } from "~features/xiaohongshu/collectors/note-enrich"
+import { flattenNoteCard, normalizeTopicList } from "~features/xiaohongshu/collectors/note-enrich"
 import {
   buildImageUrl,
   resolveCoverUrl,
@@ -21,6 +21,12 @@ function getHostname() {
 
 function parseCount(value: unknown) {
   return parseFeishuNumber(value) ?? value
+}
+
+/** feed 列读取前 flatten 嵌套 note_card，避免列表种子结构导致缺字段 */
+function getFeedNoteData(data: Record<string, unknown>, api: string) {
+  if (api !== "feed") return data
+  return flattenNoteCard(data) || data
 }
 
 function getCoverUrl(data: Record<string, unknown>, api: string) {
@@ -44,7 +50,7 @@ export const NOTE_COLUMNS: ColumnDef[] = [
       if (api === "search_notes" || api === "homefeed_notes") {
         return data.id
       }
-      return data.note_id
+      return getFeedNoteData(data, api).note_id
     }
   },
   {
@@ -81,7 +87,8 @@ export const NOTE_COLUMNS: ColumnDef[] = [
         const card = data.note_card as Record<string, unknown> | undefined
         return card?.type === "video" ? "视频" : "图文"
       }
-      return data.type === "video" ? "视频" : "图文"
+      const note = getFeedNoteData(data, api)
+      return note.type === "video" ? "视频" : "图文"
     }
   },
   {
@@ -98,7 +105,8 @@ export const NOTE_COLUMNS: ColumnDef[] = [
       if (api === "user_posted" || api === "board_notes") {
         return data.display_title
       }
-      return data.title || data.display_title
+      const note = getFeedNoteData(data, api)
+      return note.title || note.display_title
     }
   },
   {
@@ -107,13 +115,14 @@ export const NOTE_COLUMNS: ColumnDef[] = [
     category: categories.baseinfo,
     default: true,
     apis: ["feed"],
-    handle: ({ data, config }) => {
-      let content = data.desc as string | undefined
+    handle: ({ data, config, api }) => {
+      const note = getFeedNoteData(data, api)
+      let content = note.desc as string | undefined
       if (!content) return content
       const removeTags = (config as { note?: { removeContentTags?: boolean } })?.note
         ?.removeContentTags
       if (removeTags) {
-        const tags = (data.tag_list as Array<{ type: string; name: string }> | undefined)
+        const tags = (note.tag_list as Array<{ type: string; name: string }> | undefined)
           ?.filter((t) => t.type === "topic")
           .map((t) => t.name)
         for (const tag of tags || []) {
@@ -131,14 +140,15 @@ export const NOTE_COLUMNS: ColumnDef[] = [
     default: true,
     feishu: { type: 4 },
     apis: ["feed"],
-    handle: ({ data }) => {
-      const hashTag = data.hash_tag as Array<{ name?: string }> | undefined
+    handle: ({ data, api }) => {
+      const note = getFeedNoteData(data, api)
+      const hashTag = note.hash_tag as Array<{ name?: string }> | undefined
       if (hashTag?.length) {
         const names = hashTag.map((tag) => tag.name).filter(Boolean) as string[]
         if (names.length) return names
       }
 
-      return normalizeTopicList(data.tag_list, data.desc as string | undefined)
+      return normalizeTopicList(note.tag_list, note.desc as string | undefined)
     }
   },
   {
@@ -154,12 +164,13 @@ export const NOTE_COLUMNS: ColumnDef[] = [
         const interact = card?.interact_info as Record<string, unknown> | undefined
         return interact?.liked_count
       }
-      const interact = data.interact_info as Record<string, unknown> | undefined
+      const note = getFeedNoteData(data, api)
+      const interact = note.interact_info as Record<string, unknown> | undefined
       return parseCount(
         interact?.liked_count ??
           interact?.like_count ??
-          data.liked_count ??
-          data.like_count
+          note.liked_count ??
+          note.like_count
       )
     }
   },
@@ -176,8 +187,9 @@ export const NOTE_COLUMNS: ColumnDef[] = [
         const interact = card?.interact_info as Record<string, unknown> | undefined
         return interact?.collected_count
       }
-      const interact = data.interact_info as Record<string, unknown> | undefined
-      return parseCount(interact?.collected_count ?? data.collected_count)
+      const note = getFeedNoteData(data, api)
+      const interact = note.interact_info as Record<string, unknown> | undefined
+      return parseCount(interact?.collected_count ?? note.collected_count)
     }
   },
   {
@@ -193,8 +205,9 @@ export const NOTE_COLUMNS: ColumnDef[] = [
         const interact = card?.interact_info as Record<string, unknown> | undefined
         return interact?.comment_count
       }
-      const interact = data.interact_info as Record<string, unknown> | undefined
-      return parseCount(interact?.comment_count ?? data.comment_count)
+      const note = getFeedNoteData(data, api)
+      const interact = note.interact_info as Record<string, unknown> | undefined
+      return parseCount(interact?.comment_count ?? note.comment_count)
     }
   },
   {
@@ -210,15 +223,16 @@ export const NOTE_COLUMNS: ColumnDef[] = [
         const interact = card?.interact_info as Record<string, unknown> | undefined
         return parseCount(interact?.shared_count)
       }
-      const interact = data.interact_info as Record<string, unknown> | undefined
-      const statistics = data.statistics as Record<string, unknown> | undefined
+      const note = getFeedNoteData(data, api)
+      const interact = note.interact_info as Record<string, unknown> | undefined
+      const statistics = note.statistics as Record<string, unknown> | undefined
       return parseCount(
         interact?.share_count ??
           interact?.shared_count ??
           statistics?.share_count ??
           statistics?.shared_count ??
-          data.share_count ??
-          data.shared_count
+          note.share_count ??
+          note.shared_count
       )
     }
   },
@@ -229,7 +243,7 @@ export const NOTE_COLUMNS: ColumnDef[] = [
     default: true,
     feishu: { type: 5, property: { date_formatter: "yyyy-MM-dd HH:mm" } },
     apis: ["feed"],
-    handle: ({ data }) => data.time
+    handle: ({ data, api }) => getFeedNoteData(data, api).time
   },
   {
     name: "更新时间",
@@ -238,7 +252,7 @@ export const NOTE_COLUMNS: ColumnDef[] = [
     default: true,
     feishu: { type: 5, property: { date_formatter: "yyyy-MM-dd HH:mm" } },
     apis: ["feed"],
-    handle: ({ data }) => data.last_update_time
+    handle: ({ data, api }) => getFeedNoteData(data, api).last_update_time
   },
   {
     name: "IP地址",
@@ -246,7 +260,7 @@ export const NOTE_COLUMNS: ColumnDef[] = [
     category: categories.baseinfo,
     default: true,
     apis: ["feed"],
-    handle: ({ data }) => data.ip_location
+    handle: ({ data, api }) => getFeedNoteData(data, api).ip_location
   },
   {
     name: "博主昵称",
@@ -261,7 +275,8 @@ export const NOTE_COLUMNS: ColumnDef[] = [
         const user = card?.user as Record<string, unknown> | undefined
         return user?.nickname
       }
-      const user = data.user as Record<string, unknown> | undefined
+      const note = getFeedNoteData(data, api)
+      const user = note.user as Record<string, unknown> | undefined
       return user?.nickname || user?.nick_name
     }
   },
@@ -278,7 +293,8 @@ export const NOTE_COLUMNS: ColumnDef[] = [
         const user = card?.user as Record<string, unknown> | undefined
         return user?.user_id
       }
-      const user = data.user as Record<string, unknown> | undefined
+      const note = getFeedNoteData(data, api)
+      const user = note.user as Record<string, unknown> | undefined
       return user?.user_id
     }
   },
@@ -298,7 +314,8 @@ export const NOTE_COLUMNS: ColumnDef[] = [
         const source = api === "homefeed_notes" ? "pc_feed" : "pc_search"
         return `https://${host}/user/profile/${user.user_id}?xsec_token=${user.xsec_token}&xsec_source=${source}`
       }
-      const user = data.user as Record<string, unknown> | undefined
+      const note = getFeedNoteData(data, api)
+      const user = note.user as Record<string, unknown> | undefined
       if (!user?.user_id) return undefined
       const token = user.xsec_token ? `?xsec_token=${user.xsec_token}&xsec_source=pc_note` : ""
       return `https://${host}/user/profile/${user.user_id}${token}`
@@ -318,9 +335,10 @@ export const NOTE_COLUMNS: ColumnDef[] = [
         const list = card.image_list as unknown[] | undefined
         return list?.length
       }
-      const type = data.type === "video" ? "video" : data.type === "normal" ? "normal" : data.type
+      const note = getFeedNoteData(data, api)
+      const type = note.type === "video" ? "video" : note.type === "normal" ? "normal" : note.type
       if (type === "video") return undefined
-      const list = data.image_list as unknown[] | undefined
+      const list = note.image_list as unknown[] | undefined
       return list?.length || undefined
     }
   },
@@ -333,7 +351,7 @@ export const NOTE_COLUMNS: ColumnDef[] = [
     apis: ["feed", "search_notes", "user_posted", "board_notes", "homefeed_notes"],
     handle: ({ data, api }) => {
       if (api === "feed") {
-        return resolveCoverUrl(data)
+        return resolveCoverUrl(getFeedNoteData(data, api))
       }
       const url = getCoverUrl(data, api)
       if (url) {
@@ -362,8 +380,9 @@ export const NOTE_COLUMNS: ColumnDef[] = [
           .filter(Boolean)
           .join("\n")
       }
-      if (data.type === "video") return undefined
-      const list = data.image_list as Array<Record<string, unknown>> | undefined
+      const note = getFeedNoteData(data, api)
+      if (note.type === "video") return undefined
+      const list = note.image_list as Array<Record<string, unknown>> | undefined
       const urls = list
         ?.map((item) => buildImageUrl(item, "jpg"))
         .filter(Boolean) as string[] | undefined
@@ -376,8 +395,9 @@ export const NOTE_COLUMNS: ColumnDef[] = [
     category: categories.other,
     default: false,
     apis: ["feed"],
-    handle: ({ data }) => {
-      const video = data.video as Record<string, unknown> | undefined
+    handle: ({ data, api }) => {
+      const note = getFeedNoteData(data, api)
+      const video = note.video as Record<string, unknown> | undefined
       const capa = video?.capa as Record<string, unknown> | undefined
       return capa?.duration
     }
@@ -389,7 +409,7 @@ export const NOTE_COLUMNS: ColumnDef[] = [
     default: true,
     feishu: { type: 15 },
     apis: ["feed"],
-    handle: ({ data }) => resolveVideoUrl(data)
+    handle: ({ data, api }) => resolveVideoUrl(getFeedNoteData(data, api))
   },
   {
     name: "搜索关键词",

@@ -9,6 +9,7 @@
 - feed 返回 `code: -1, success: false`（签名配套失败）
 - Network 显示 feed 成功（`code: 0`），侧边栏仍出现 `Cannot read properties of undefined (reading 'items')`
 - 表格有标题、点赞/收藏/评论、博主昵称，但 **笔记 ID、笔记内容、笔记话题、发布时间** 为空
+- **发现页**批量：有笔记内容、话题、发布时间、博主昵称，但 **点赞/收藏/评论/分享、博主 ID/链接、封面/图片链接、IP、更新时间** 为空
 - 成功 curl 的 `x-s-common` 以 `2UQA` 开头，扩展请求却是 `qIQl` 等异常前缀
 
 **根本原因：**
@@ -27,6 +28,9 @@
 
 5. **列定义与数据来源**  
    `content`、`tag_list` 等列仅 `apis: ["feed"]`；若 feed 未解析出 `note_card`，表格只剩搜索列表种子里的标题与互动数。
+
+6. **发现页 INITIAL_STATE 种子 / flatten 丢互动（有内容无互动）**  
+   打开「采集本页笔记」弹窗时会从 `__INITIAL_STATE__` bootstrap 首批笔记，其 `note_card` 常缺 `interact_info` 计数。若 `flattenNoteCard` 用 `{ ...outer, ...nested }` 时 nested 的 `interact_info: { liked:false }` 覆盖外层完整计数，或 `isFeedDetailComplete` 仅凭 `user_id`/`image_list` 判成功，会落库残缺 card 并提示 **「feed 缺少互动计数」**。批量在 **sidepanel** 跑，读不到 content 内 feed 拦截缓存。详见下文专条 Q。
 
 **解决方案：**
 
@@ -155,4 +159,97 @@ feed 成功时业务体（解包后）应能取到：
 - 可采集条数可能 **少于** 搜索页可见卡片数（差值为无效链接）
 - 进度 **N/N** 应对齐可采集条数，而非原始 DOM 卡片总数
 - 若浏览器也无法打开，**无需反复重试**，可忽略该条
+
+---
+
+### **Q: 为什么发现页批量采集有标题/内容但互动数为空，并提示「feed 缺少互动计数」？**
+
+**A:**
+发现页批量（`pageCollectType: "explore"`，`collectBy: "links"`）每条笔记走一次 `POST /api/sns/web/v1/feed`。DevTools 或 curl 里 `items[0].note_card.interact_info` 已有完整点赞/收藏/评论/分享，但侧边栏表格互动列为空、并出现 **「feed 缺少互动计数」**（或修复后为 **「feed 详情缺少互动计数」**），说明 **API 正常、扩展解析/合并链路把互动弄丢了**，或误把 INITIAL_STATE 列表种子当 feed 详情落库。
+
+**问题症状：**
+
+- 表格有 **笔记标题、笔记内容、话题、发布时间、博主昵称**，但 **点赞/收藏/评论/分享、博主 ID/链接、图片链接、IP** 为空
+- 橙色 warning：**「第 N 条: feed 缺少互动计数」**（旧版）或 **「feed 详情缺少互动计数，请检查 Network 中 v1/feed 响应」**（收紧后）
+- 用相同 `source_note_id` + `xsec_token` + `xsec_source: pc_feed` 手动 curl feed，响应里 `interact_info` 完整
+- sidepanel 控制台 `[qmc] fetchNoteDetail` 中 `liked_count` 为空，`items_length` 为 0 或 parse 后无计数
+
+**根本原因：**
+
+1. **`flattenNoteCard` 覆盖 interact**  
+   列表 item 形如 `{ note_card: { interact_info: { liked:false, relation:"none" } }, ... }` 与外层合并时，spread 顺序导致 **无计数的 nested interact 覆盖** 含 `liked_count` 的字段。
+
+2. **`isFeedDetailComplete` 过宽（历史问题）**  
+   仅有 `user.user_id` 或 `image_list` 即判「完整」，`fetchNoteDetail` 仍返回 partial card，批量合并后互动列全空。
+
+3. **sidepanel 与 content 隔离**  
+   页面 Network 里 hooks 拦截到的完整 feed 写入 content 内 `feed-cache`，**sidepanel 批量任务读不到**；自发起 feed 若 parse 丢互动，无法从同 tab 拦截缓存补全。
+
+4. **feed POST 不发 explore URL（易误解）**  
+   请求体只有 `source_note_id`、`xsec_source`（发现页强制 `pc_feed`）、`xsec_token`、`image_formats`、`extra`；explore 链接仅用于解析 token 与表格「笔记链接」列，**不是缺链导致无互动**。
+
+**解决方案（已实现方向）：**
+
+1. **`isFeedDetailComplete`** 仅 `hasInteractCounts(note)` 为 true 才算成功（`src/features/xiaohongshu/feed/parse-feed-note.ts`）。
+2. **`flattenNoteCard`** 在 spread 后用 `mergeInteractInfo` 显式合并 outer/inner 的 `interact_info`，优先保留含计数的对象（`src/features/xiaohongshu/collectors/note-enrich.ts`）。
+3. **`fetchNoteDetail`**：API 解析后若仍无互动，通过 `waitForCachedFeedNoteFromPage` 读 content feed 拦截缓存，`mergeNoteSources(cached, api)` 补全；仍无互动则 **返回 error**，不落库残缺 card（`src/features/xiaohongshu/feed/fetch-note-detail.ts`）。
+4. **feed-cache 桥接**：content 响应 `qmc:get-cached-feed-note`；`src/shared/messaging.ts` 提供 `waitForCachedFeedNoteFromPage`；缓存写入前对 `items[0].note_card` 做 `flattenNoteCard`（`src/features/xiaohongshu/collectors/feed-cache.ts`、`src/contents/content.ts`）。
+5. **诊断**：sidepanel 始终输出 `console.warn("[qmc] fetchNoteDetail", { items_length, liked_count, cache_hit, ... })`，便于与 Network Response 对照。
+
+**排查步骤：**
+
+1. `chrome://extensions` **重新加载**扩展，硬刷新小红书页。
+2. 发现页 →「采集本页笔记」→ 侧边栏批量 1 条复现。
+3. 打开 **sidepanel** 控制台（不是页面控制台），找 `[qmc] fetchNoteDetail`：
+   - `items_length: 0` → 检查 `normalizeFeedListPayload` / `unwrapXhsResponsePayload` 是否丢 `items`
+   - `items_length > 0` 且 `liked_count` 空、`cache_hit: false` → 检查 flatten 与 feed-cache 桥接
+   - `cache_hit: true` 且有点赞 → 正常走缓存补全
+4. 对比 Network 中扩展发起的 `v1/feed` Response 与 curl 是否同为 `code: 0` 且 `note_card.interact_info` 一致。
+
+**错误模式示例：**
+
+```typescript
+// ❌ spread 后未合并 interact，nested 无计数对象覆盖外层
+const flat = { ...outer, ...nested.note_card }
+
+// ❌ 仅凭 user_id / image_list 判 feed 成功
+if (user?.user_id || image_list?.length) return true
+
+// ❌ 无互动仍 return { noteCard } 落库
+if (!hasInteractCounts(normalized)) console.warn(...)
+return { noteCard: normalized }
+```
+
+**正确模式示例：**
+
+```typescript
+// ✅ flatten 后 mergeInteractInfo 保留含 liked_count 的一侧
+flat.interact_info = mergeInteractInfo(outerInteract, innerInteract)
+
+// ✅ 仅互动计数齐全才算完整
+export function isFeedDetailComplete(note) {
+  return hasInteractCounts(note)
+}
+
+// ✅ 缺互动时先等 page feed-cache，仍失败则 error
+const cached = await waitForCachedFeedNoteFromPage(noteId, 2000)
+const merged = mergeNoteSources(cached, apiParsed)
+if (!hasInteractCounts(merged)) {
+  return { noteCard: null, error: "feed 详情缺少互动计数，请检查 Network 中 v1/feed 响应" }
+}
+```
+
+**关键配置要点：**
+
+- 发现页批量 **`xsec_source` 固定 `pc_feed`**（`note.ts` → `resolveFeedParams`）
+- **`enhanced: true`** 走页面 webpack 客户端，与 curl 签名一致
+- 批量在 sidepanel 执行，**必须**经 messaging 读 content 的 feed-cache，不能 import `feed-cache.ts` 到 sidepanel
+- 改动 background / main-world / content 后需重载扩展
+
+**参考文档：**
+
+- `src/features/xiaohongshu/feed/fetch-note-detail.ts` — 拉取、缓存补全、完整性校验
+- `src/features/xiaohongshu/feed/parse-feed-note.ts` — `hasInteractCounts`、`parseFeedNoteCard`
+- `src/features/xiaohongshu/collectors/note-enrich.ts` — `flattenNoteCard`、`mergeNoteSources`
+- `src/shared/messaging.ts` — `waitForCachedFeedNoteFromPage`
 

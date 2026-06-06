@@ -1,36 +1,37 @@
 import {
   fetchBoardNotes,
   fetchHomefeed,
-  fetchNoteFeed,
   fetchUserInfo,
   fetchUserPosted,
   searchNotes
 } from "~features/xiaohongshu/api/client"
-import { extractNoteCardFromFeedPayload } from "~features/xiaohongshu/api/response"
 import {
-  buildNoteExploreUrl,
   isXhsNoteId,
   parseBoardUrl,
   parseNoteUrl,
   parseUserUrl,
-  resolveXhsNoteId,
   sleep
 } from "~features/xiaohongshu/api/parsers"
 import { NOTE_COLUMNS } from "~features/xiaohongshu/columns/note"
-import { mergeNoteSources } from "~features/xiaohongshu/collectors/note-enrich"
+import {
+  collectNoteByUrl,
+  parseNoteUrlOrNull,
+  shouldWarnFeedOnlySeed
+} from "~features/xiaohongshu/feed/collect-note-by-url"
+import { fetchNoteDetail } from "~features/xiaohongshu/feed/fetch-note-detail"
+import {
+  buildFeedRequest,
+  resolveFeedNoteId,
+  type FeedNoteSeed
+} from "~features/xiaohongshu/feed/resolve-feed-request"
 import { TaskRunner } from "~shared/task-runner"
 import type { XhsApiType } from "~shared/columns/types"
 
 export type PageCollectType = "explore" | "search" | "profile"
 
-export type PageNoteSeed = {
+export type PageNoteSeed = FeedNoteSeed & {
   id: string
   url: string
-  /** 列表 API 拦截到的 note token，与 url 同源 */
-  xsec_token?: string
-  noteCard?: Record<string, unknown>
-  /** 列表来源，用于 feed 请求配对正确的 xsec_source */
-  api?: XhsApiType
 }
 
 export type NoteCollectCondition = {
@@ -61,32 +62,6 @@ type AddRecordInput = {
   skipUserInfo?: boolean
   /** links 批量：已在 feed 前 waitInterval，避免重复 sleep */
   skipSleep?: boolean
-}
-
-function apiToXsecSource(api?: XhsApiType) {
-  if (api === "homefeed_notes") return "pc_feed"
-  if (api === "search_notes") return "pc_search"
-  if (api === "user_posted") return "pc_user"
-  if (api === "board_notes") return "pc_board"
-  return undefined
-}
-
-function normalizeNoteCard(
-  noteCard: Record<string, unknown> | undefined,
-  noteId: string
-) {
-  if (!noteCard || Object.keys(noteCard).length === 0) return undefined
-
-  return {
-    ...noteCard,
-    note_id: noteCard.note_id || noteCard.id || noteId,
-    title: noteCard.title || noteCard.display_title
-  }
-}
-
-/** 对齐社媒助手 JR：items[0].note_card */
-function extractNoteCardFromFeed(feed: unknown) {
-  return extractNoteCardFromFeedPayload(feed)
 }
 
 export class NoteCollector extends TaskRunner<NoteCollectCondition> {
@@ -126,13 +101,7 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
   }
 
   private resolveFeedNoteId(url: string, seed?: PageNoteSeed) {
-    const parsed = parseNoteUrl(url)
-    const fromCard = seed?.noteCard
-      ? resolveXhsNoteId(undefined, seed.noteCard)
-      : ""
-    const fromSeed = seed?.id && isXhsNoteId(seed.id) ? seed.id : ""
-    const fromPath = parsed.noteId || (isXhsNoteId(parsed.id) ? parsed.id : "")
-    return fromCard || fromSeed || fromPath
+    return resolveFeedNoteId(url, seed)
   }
 
   getTotal() {
@@ -178,56 +147,6 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
   private isExplorePageBatch() {
     const c = this.condition
     return c.pageCollectType === "explore" || c.name === "发现页的笔记数据"
-  }
-
-  private resolveFeedParams(url: string, seed?: PageNoteSeed) {
-    const parsed = parseNoteUrl(url)
-    const id = this.resolveFeedNoteId(url, seed) || parsed.id
-
-    // 列表 token 优先：URL > seed.xsec_token > noteCard 列表级 token（禁止 user.xsec_token）
-    let token = parsed.token
-    if (!token && seed?.xsec_token) {
-      token = seed.xsec_token
-    }
-    if (!token && seed?.noteCard?.xsec_token) {
-      token = String(seed.noteCard.xsec_token)
-    }
-    if (!token && seed?.url) {
-      try {
-        token = parseNoteUrl(seed.url).token
-      } catch {
-        // ignore
-      }
-    }
-
-    let source = apiToXsecSource(seed?.api) || parsed.source || "pc_feed"
-    if (this.isExplorePageBatch() && seed?.api === "homefeed_notes") {
-      source = "pc_feed"
-    }
-
-    return { id, token, source }
-  }
-
-  /** 对齐社媒助手 JR：单次 v1/feed，token 可从 pageNotes 种子补全 */
-  private async fetchNoteCardByUrl(
-    url: string,
-    feedNoteId: string,
-    seed?: PageNoteSeed
-  ) {
-    const { token, source } = this.resolveFeedParams(url, seed)
-    const sourceNoteId = isXhsNoteId(feedNoteId)
-      ? feedNoteId
-      : this.resolveFeedNoteId(url, seed)
-
-    const feed = await fetchNoteFeed({
-      source_note_id: sourceNoteId,
-      image_formats: ["jpg", "webp", "avif"],
-      extra: { need_body_topic: "1" },
-      xsec_source: source,
-      xsec_token: token
-    })
-
-    return normalizeNoteCard(extractNoteCardFromFeed(feed), sourceNoteId)
   }
 
   private async addRecord(input: AddRecordInput) {
@@ -286,10 +205,10 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
           (input.noteUrl ? this.resolveFeedNoteId(input.noteUrl, seed) : "") ||
           input.uniqueId ||
           ""
-        const noteCard = await this.fetchNoteCardByUrl(
-          input.noteUrl,
-          feedNoteId,
-          seed
+        const { noteCard, error } = await fetchNoteDetail(
+          buildFeedRequest(input.noteUrl, feedNoteId, seed, {
+            forcePcFeed: this.isExplorePageBatch()
+          })
         )
         if (noteCard) {
           this.fillRecord(
@@ -302,6 +221,9 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
             },
             record
           )
+        } else if (error) {
+          console.warn("fetch feed failed", error)
+          this.recordWarning(error)
         }
       } catch (error) {
         console.warn("fetch feed failed", error)
@@ -365,17 +287,15 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
   /** 发现页本页笔记（links）：每条 1 次 v1/feed + feed 前 1~3s 抖动 */
   private async collectByLinks(urls: string[]) {
     const limit = this.condition.limit ?? urls.length
-    const host = "www.xiaohongshu.com"
     const slice = urls.slice(0, limit)
+    const forcePcFeed = this.isExplorePageBatch()
 
     for (let i = 0; i < slice.length; i++) {
       const url = slice[i]
       const index = i + 1
 
-      let parsed
-      try {
-        parsed = parseNoteUrl(url)
-      } catch {
+      const parsed = parseNoteUrlOrNull(url)
+      if (!parsed) {
         this.recordLinkWarning(index, url, "链接无法解析")
         continue
       }
@@ -388,50 +308,33 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
         continue
       }
 
-      let feedNote: Record<string, unknown> | undefined
-      const { token, source } = this.resolveFeedParams(url, seed)
-      const feedUrl = token
-        ? buildNoteExploreUrl(feedNoteId, token, source, host)
-        : url
-
       await this.waitInterval()
 
-      try {
-        feedNote = await this.fetchNoteCardByUrl(feedUrl, feedNoteId, seed)
-      } catch (error) {
-        console.warn("fetch feed failed", url, error)
-        const msg = (error as Error).message?.trim() || "采集失败"
-        this.recordLinkWarning(index, url, msg)
-      }
+      const result = await collectNoteByUrl({
+        url,
+        seed,
+        forcePcFeed,
+        scene: "batch"
+      })
 
-      const pageNote = seed?.noteCard
-        ? {
-            ...seed.noteCard,
-            note_id: resolveXhsNoteId(undefined, seed.noteCard) || seed.id
-          }
-        : undefined
-
-      const merged = feedNote
-        ? mergeNoteSources(pageNote, feedNote)
-        : pageNote
-          ? mergeNoteSources(pageNote, undefined)
-          : undefined
-
-      if (!merged || Object.keys(merged).length === 0) {
+      if (!result) {
         continue
       }
 
-      const noteId = String(merged.note_id || merged.id || feedNoteId)
+      if (result.feedError) {
+        console.warn("fetch feed failed", url, result.feedError)
+        this.recordLinkWarning(index, url, result.feedError)
+      }
 
-      await this.addRecord({
-        data: merged,
-        api: "feed",
-        uniqueId: noteId,
-        noteUrl: feedUrl,
-        skipFeed: true,
-        skipUserInfo: true,
-        skipSleep: true
-      })
+      if (shouldWarnFeedOnlySeed(result.feedNote, result.merged)) {
+        this.recordLinkWarning(
+          index,
+          url,
+          "feed 失败，当前仅列表基础字段，请检查 Network 中 v1/feed 是否 code:0"
+        )
+      }
+
+      this.records.push(result.record)
     }
   }
 

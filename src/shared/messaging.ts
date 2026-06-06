@@ -112,3 +112,42 @@ export async function openExtensionOptions(section = "sync-feishu") {
     url: chrome.runtime.getURL(`options.html${hash}`)
   })
 }
+
+/** 从当前小红书 tab 的 content script feed 拦截缓存读取 note_card */
+export async function getCachedFeedNoteFromPage(
+  noteId: string,
+  tabId?: number
+): Promise<Record<string, unknown> | undefined> {
+  const targetTabId = tabId ?? (await getActiveXhsTabId())
+  try {
+    const cached = await chrome.tabs.sendMessage(targetTabId, {
+      type: "qmc:get-cached-feed-note",
+      noteId
+    })
+    if (cached && typeof cached === "object" && Object.keys(cached).length > 0) {
+      return cached as Record<string, unknown>
+    }
+  } catch {
+    // content script 未注入或 tab 不可用
+  }
+  return undefined
+}
+
+/** sidepanel 批量：等待页面 feed 拦截缓存（与 waitForCachedFeedNote 对齐） */
+export async function waitForCachedFeedNoteFromPage(
+  noteId: string,
+  timeoutMs = 2000,
+  tabId?: number
+): Promise<Record<string, unknown> | undefined> {
+  const immediate = await getCachedFeedNoteFromPage(noteId, tabId)
+  if (immediate) return immediate
+
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    const cached = await getCachedFeedNoteFromPage(noteId, tabId)
+    if (cached) return cached
+  }
+
+  return undefined
+}

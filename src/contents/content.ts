@@ -1,6 +1,9 @@
 import type { PlasmoCSConfig } from "plasmo"
 
-import { handleFeedApiResponse } from "~features/xiaohongshu/collectors/feed-cache"
+import {
+  getCachedFeedNote,
+  handleFeedApiResponse
+} from "~features/xiaohongshu/collectors/feed-cache"
 import { handlePageNotesApiResponse } from "~features/xiaohongshu/collectors/page-notes-cache"
 import type {
   ApiInterceptPayload,
@@ -114,6 +117,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       (result) => sendResponse(result)
     )
     return true
+  }
+
+  if (message?.type === "qmc:get-cached-feed-note" && message.noteId) {
+    sendResponse(getCachedFeedNote(String(message.noteId)))
+    return false
   }
 
   return false

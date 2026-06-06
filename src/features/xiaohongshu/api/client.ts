@@ -1,8 +1,10 @@
 import { smzsRequest } from "~shared/messaging"
 import type { HttpRequestConfig } from "~shared/messaging/types"
 
-import { unwrapXhsResponsePayload } from "./response"
+import { normalizeFeedListPayload, unwrapXhsResponsePayload } from "./unwrap-payload"
 import { XHS_ENDPOINTS } from "./endpoints"
+
+export { unwrapXhsResponsePayload } from "./unwrap-payload"
 
 async function xhsRequest<T = unknown>(config: HttpRequestConfig): Promise<T> {
   const response = await smzsRequest({
@@ -57,11 +59,12 @@ export async function fetchNoteFeed(payload: {
   xsec_source?: string
   xsec_token?: string
 }) {
-  return xhsRequest({
+  const data = await xhsRequest<Record<string, unknown>>({
     url: XHS_ENDPOINTS.feed,
     method: "POST",
     data: payload
   })
+  return normalizeFeedListPayload(data)
 }
 
 export async function fetchUserInfo(params: { target_user_id: string }) {

@@ -1,16 +1,12 @@
-import { fetchNoteFeed } from "~features/xiaohongshu/api/client"
-import { extractNoteCardFromFeedPayload } from "~features/xiaohongshu/api/response"
 import { parseNoteUrl } from "~features/xiaohongshu/api/parsers"
 import { NOTE_COLUMNS } from "~features/xiaohongshu/columns/note"
-import {
-  getCachedFeedNote,
-  waitForCachedFeedNote
-} from "~features/xiaohongshu/collectors/feed-cache"
-import {
-  applyDomEnrichment,
-  mergeNoteSources
-} from "~features/xiaohongshu/collectors/note-enrich"
+import { waitForCachedFeedNote } from "~features/xiaohongshu/collectors/feed-cache"
+import { mergeNoteSources } from "~features/xiaohongshu/collectors/note-enrich"
+import { collectNoteByUrl } from "~features/xiaohongshu/feed/collect-note-by-url"
+import { buildFeedNoteRecord } from "~features/xiaohongshu/records/build-feed-record"
 import { getWindowValue } from "~shared/messaging"
+
+export { buildFeedNoteRecord as buildNoteRecord }
 
 type NoteDetailEntry = {
   note?: Record<string, unknown>
@@ -147,76 +143,6 @@ export async function fetchNoteFromPage(noteId: string) {
   return undefined
 }
 
-async function fetchNoteFromApi(
-  noteId: string,
-  noteUrl: string,
-  pageNote?: Record<string, unknown>
-) {
-  let token = ""
-  let source = "pc_feed"
-
-  try {
-    const parsed = parseNoteUrl(noteUrl)
-    token = parsed.token
-    source = parsed.source
-  } catch {
-    // URL 不含 token 时从页面数据补全
-  }
-
-  if (!token && pageNote?.xsec_token) {
-    token = String(pageNote.xsec_token)
-  }
-  if (!source || source === "pc_feed") {
-    source = String(pageNote?.xsec_source || source || "pc_feed")
-  }
-
-  const feed = await fetchNoteFeed({
-    source_note_id: noteId,
-    image_formats: ["jpg", "webp", "avif"],
-    extra: { need_body_topic: "1" },
-    xsec_source: source,
-    xsec_token: token
-  })
-
-  const noteCard = extractNoteCardFromFeedPayload(feed)
-  if (!noteCard) return undefined
-
-  return {
-    ...noteCard,
-    note_id: noteCard.note_id || noteCard.id || noteId,
-    title: noteCard.title || noteCard.display_title
-  }
-}
-
-export function buildNoteRecord(
-  rawNote: Record<string, unknown>,
-  noteId: string,
-  pageUrl: string
-) {
-  const record: Record<string, unknown> = {}
-
-  for (const column of NOTE_COLUMNS) {
-    if (!column.apis.includes("feed")) continue
-    const value = column.handle({
-      data: rawNote,
-      api: "feed",
-      pageUrl
-    })
-    if (value !== undefined) {
-      record[column.key] = value
-    }
-  }
-
-  if (!record.note_id) {
-    record.note_id = rawNote.note_id || noteId
-  }
-  if (!record.url) {
-    record.url = pageUrl
-  }
-
-  return record
-}
-
 export async function collectSingleNote(noteId?: string) {
   const id = resolveNoteId(noteId)
   if (!id) {
@@ -224,48 +150,42 @@ export async function collectSingleNote(noteId?: string) {
   }
 
   const noteUrl = resolveNoteUrl(id)
-  const [pageNote, detailEntry] = await Promise.all([
+  const [pageNote, detailEntry, cachedFeedNote] = await Promise.all([
     fetchCurrNote(id),
-    fetchNoteDetailEntry(id)
+    fetchNoteDetailEntry(id),
+    waitForCachedFeedNote(id)
   ])
 
-  const cachedFeedNote = await waitForCachedFeedNote(id)
-  let feedNote = cachedFeedNote
-
+  let result
   try {
-    const apiFeedNote = await fetchNoteFromApi(id, noteUrl, pageNote)
-    if (apiFeedNote) feedNote = apiFeedNote
+    result = await collectNoteByUrl({
+      url: noteUrl,
+      scene: "single",
+      pageNote,
+      detailEntry: detailEntry || undefined,
+      prefetchedFeedNote: cachedFeedNote,
+      host: location.origin
+    })
   } catch (error) {
     console.warn("feed 接口补充笔记信息失败", error)
+    throw error
   }
 
-  let rawNote = mergeNoteSources(pageNote, feedNote, detailEntry || undefined)
-  rawNote = await applyDomEnrichment(rawNote, id)
-
-  if (!rawNote || Object.keys(rawNote).length === 0) {
+  if (!result) {
     throw new Error("获取笔记信息失败，请刷新页面后重试")
   }
 
-  const record = buildNoteRecord(rawNote, id, noteUrl)
-  const user = rawNote.user as Record<string, unknown> | undefined
-  const userUrl = user?.user_id
-    ? `${location.origin}/user/profile/${user.user_id}`
-    : undefined
-
-  const interact = rawNote.interact_info as Record<string, unknown> | undefined
-  let commentCount: number | undefined
-  if (interact?.comment_count) {
-    const parsed = parseInt(String(interact.comment_count), 10)
-    if (!Number.isNaN(parsed)) commentCount = parsed
+  if (result.feedError) {
+    console.warn("[qmc] fetchNoteDetail failed", id, result.feedError)
   }
 
   return {
-    noteId: id,
+    noteId: result.noteId,
     noteUrl,
-    userUrl,
-    rawNote,
-    record,
-    commentCount
+    userUrl: result.userUrl,
+    rawNote: result.merged,
+    record: result.record,
+    commentCount: result.commentCount
   }
 }
 

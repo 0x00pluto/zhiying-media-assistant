@@ -5,6 +5,10 @@ import {
   parseNoteUrl,
   resolveXhsNoteId
 } from "~features/xiaohongshu/api/parsers"
+import {
+  flattenNoteCard,
+  mergeNoteSources
+} from "~features/xiaohongshu/collectors/note-enrich"
 
 export const QMC_PAGE_NOTES_CHANGED_EVENT = "qmc:page-notes-changed"
 
@@ -76,21 +80,62 @@ function isNoteFeedItem(item: Record<string, unknown>) {
   return Boolean(item.id && (item.xsec_token || item.xsecToken))
 }
 
+function mergeEntryNoteCard(
+  base?: Record<string, unknown>,
+  extra?: Record<string, unknown>
+) {
+  if (!base && !extra) return undefined
+  return mergeNoteSources(flattenNoteCard(base), flattenNoteCard(extra))
+}
+
+function mergePageNoteEntry(
+  existing: PageNoteEntry,
+  incoming: PageNoteEntry
+): PageNoteEntry {
+  const noteCard = mergeEntryNoteCard(existing.noteCard, incoming.noteCard)
+  const preferIncoming =
+    incoming.api === "homefeed_notes" && existing.api === "search_notes"
+
+  return {
+    id: existing.id,
+    xsec_token: incoming.xsec_token || existing.xsec_token,
+    url: incoming.url || existing.url,
+    api: preferIncoming ? incoming.api : existing.api || incoming.api,
+    noteCard
+  }
+}
+
+function isSamePageNoteEntry(before: PageNoteEntry, after: PageNoteEntry) {
+  return (
+    before.xsec_token === after.xsec_token &&
+    before.url === after.url &&
+    before.api === after.api &&
+    JSON.stringify(before.noteCard) === JSON.stringify(after.noteCard)
+  )
+}
+
 function addNote(entry: PageNoteEntry) {
   if (!isXhsNoteId(entry.id)) return false
+
+  const normalized: PageNoteEntry = {
+    ...entry,
+    noteCard: entry.noteCard
+      ? flattenNoteCard(entry.noteCard, entry.id)
+      : undefined
+  }
 
   const store = getPageNotesStore()
   const existing = store.get(entry.id)
   if (existing) {
-    if (entry.api === "homefeed_notes" && existing.api === "search_notes") {
-      store.set(entry.id, entry)
-      notifyChange()
-      return true
-    }
-    return false
+    const merged = mergePageNoteEntry(existing, normalized)
+    if (isSamePageNoteEntry(existing, merged)) return false
+
+    store.set(entry.id, merged)
+    notifyChange()
+    return true
   }
 
-  store.set(entry.id, entry)
+  store.set(entry.id, normalized)
   notifyChange()
   return true
 }

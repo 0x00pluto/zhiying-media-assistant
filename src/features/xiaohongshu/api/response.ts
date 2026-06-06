@@ -1,46 +1,18 @@
-/** 统一解包小红书 API 响应（axios 包装 / 业务 envelope / 已解包 payload） */
-export function unwrapXhsResponsePayload(raw: unknown): unknown {
-  if (raw == null || typeof raw !== "object") return raw
+import {
+  parseFeedNoteCard,
+  extractFeedItemsFromPayload
+} from "~features/xiaohongshu/feed/parse-feed-note"
 
-  const value = raw as Record<string, unknown>
+import { unwrapXhsResponsePayload } from "./unwrap-payload"
 
-  if (
-    typeof value.status === "number" &&
-    "data" in value &&
-    value.data !== undefined
-  ) {
-    return unwrapXhsResponsePayload(value.data)
-  }
+export { unwrapXhsResponsePayload } from "./unwrap-payload"
 
-  if (
-    typeof value.code === "number" &&
-    "data" in value &&
-    value.data != null &&
-    typeof value.data === "object"
-  ) {
-    return value.data
-  }
+/** @deprecated 请使用 extractFeedItemsFromPayload */
+export const extractFeedItems = extractFeedItemsFromPayload
 
-  return raw
-}
-
-export function extractFeedItems(feed: unknown): Array<Record<string, unknown>> {
-  const payload = unwrapXhsResponsePayload(feed) as {
-    items?: Array<Record<string, unknown>>
-    data?: { items?: Array<Record<string, unknown>> }
-  }
-
-  if (Array.isArray(payload?.items)) return payload.items
-  if (Array.isArray(payload?.data?.items)) return payload.data.items
-  return []
-}
-
-/** 对齐社媒助手：items[0].note_card */
+/** @deprecated 请使用 parseFeedNoteCard；保留兼容 feed-cache 等旧引用 */
 export function extractNoteCardFromFeedPayload(feed: unknown) {
-  const item = extractFeedItems(feed)[0]
-  if (!item) return undefined
-
-  return (item.note_card || item.noteCard) as Record<string, unknown> | undefined
+  return parseFeedNoteCard(feed) ?? undefined
 }
 
 export function recoverHttpDataFromAxiosError(error: unknown): unknown {

@@ -1,6 +1,10 @@
 import type { ApiInterceptPayload } from "~shared/messaging/types"
 
-import { extractFeedItems, extractNoteCardFromFeedPayload } from "~features/xiaohongshu/api/response"
+import { flattenNoteCard } from "~features/xiaohongshu/collectors/note-enrich"
+import {
+  extractFeedItemsFromPayload,
+  parseFeedNoteCard
+} from "~features/xiaohongshu/feed/parse-feed-note"
 
 const feedNoteCache = new Map<string, Record<string, unknown>>()
 
@@ -11,17 +15,19 @@ export function handleFeedApiResponse(payload: ApiInterceptPayload) {
     if (!url.pathname.endsWith("/api/sns/web/v1/feed")) return
 
     const result = payload.result
-    const noteCard = extractNoteCardFromFeedPayload(result)
-    if (!noteCard || Object.keys(noteCard).length === 0) return
+    const parsed = parseFeedNoteCard(result)
+    if (!parsed || Object.keys(parsed).length === 0) return
 
     const body = payload.body as { source_note_id?: string } | undefined
-    const itemId = extractFeedItems(result)[0]?.id
+    const items = extractFeedItemsFromPayload(result)
+    const itemId = items[0]?.id
     const noteId =
       body?.source_note_id ||
-      (noteCard.note_id as string | undefined) ||
+      (parsed.note_id as string | undefined) ||
       (itemId != null ? String(itemId) : undefined)
     if (!noteId) return
 
+    const noteCard = flattenNoteCard(parsed, noteId) || parsed
     feedNoteCache.set(noteId, noteCard)
   } catch {
     // ignore malformed intercept payload

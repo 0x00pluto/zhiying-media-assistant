@@ -1,4 +1,4 @@
-import { parseUserUrl } from "~features/xiaohongshu/api/parsers"
+import { parseUserUrl, resolveXhsNoteId } from "~features/xiaohongshu/api/parsers"
 import {
   buildImageUrl,
   buildVideoUrl,
@@ -6,6 +6,7 @@ import {
   resolveCoverUrl,
   resolveVideoUrl
 } from "~features/xiaohongshu/media/extract"
+import { hasInteractCounts } from "~features/xiaohongshu/feed/parse-feed-note"
 import { getWindowValue } from "~shared/messaging"
 
 function isEmptyValue(value: unknown) {
@@ -236,7 +237,7 @@ export function normalizeTopicList(
   return extractTopicsFromDesc(desc)
 }
 
-function enrichInteractFromStatistics(note: Record<string, unknown>) {
+export function enrichInteractFromStatistics(note: Record<string, unknown>) {
   const interact = ((note.interact_info || {}) as Record<string, unknown>) || {}
   const statistics = note.statistics as Record<string, unknown> | undefined
   if (!statistics) return note
@@ -400,93 +401,153 @@ function extractCoverFromDom() {
   return url ? { url, url_default: url } : undefined
 }
 
+function mergeInteractInfo(
+  primary?: Record<string, unknown>,
+  secondary?: Record<string, unknown>
+) {
+  const merged = mergeObjects(primary, secondary)
+  if (merged && hasInteractCounts({ interact_info: merged })) {
+    return merged
+  }
+  return mergeObjects(secondary, primary)
+}
+
+/** 将列表 item / 嵌套 note_card 提升为扁平 note_card，供列定义与 merge 使用 */
+export function flattenNoteCard(
+  noteCard?: Record<string, unknown>,
+  noteId?: string
+): Record<string, unknown> | undefined {
+  if (!noteCard || Object.keys(noteCard).length === 0) return undefined
+
+  const nested = (noteCard.note_card || noteCard.noteCard) as
+    | Record<string, unknown>
+    | undefined
+
+  const flat: Record<string, unknown> = nested
+    ? {
+        ...noteCard,
+        ...nested,
+        note_id:
+          resolveXhsNoteId(undefined, nested) ||
+          resolveXhsNoteId(undefined, noteCard) ||
+          noteCard.note_id ||
+          noteCard.id ||
+          noteId
+      }
+    : { ...noteCard }
+
+  delete flat.note_card
+  delete flat.noteCard
+
+  if (nested) {
+    const outerInteract = noteCard.interact_info as Record<string, unknown> | undefined
+    const innerInteract = nested.interact_info as Record<string, unknown> | undefined
+    const mergedInteract = mergeInteractInfo(outerInteract, innerInteract)
+    if (mergedInteract) {
+      flat.interact_info = mergedInteract
+    }
+  }
+
+  if (noteId && !flat.note_id && !flat.id) {
+    flat.note_id = noteId
+  }
+  if (!flat.title && flat.display_title) {
+    flat.title = flat.display_title
+  }
+
+  return flat
+}
+
 /** 合并页面 state 与 feed API 返回的笔记数据，优先保留非空 API 字段 */
 export function mergeNoteSources(
   pageNote?: Record<string, unknown>,
   apiNote?: Record<string, unknown>,
   detailEntry?: Record<string, unknown>
 ) {
+  const flatPage = flattenNoteCard(pageNote)
+  const flatApi = flattenNoteCard(apiNote)
   const entryNote = detailEntry?.note as Record<string, unknown> | undefined
+  const flatEntry = flattenNoteCard(entryNote)
   const merged: Record<string, unknown> = {
-    ...(pageNote || {}),
-    ...(entryNote || {}),
-    ...(apiNote || {})
+    ...(flatPage || {}),
+    ...(flatEntry || {}),
+    ...(flatApi || {})
   }
 
   merged.note_id = preferValue(
-    pageNote?.note_id || entryNote?.note_id,
-    apiNote?.note_id || apiNote?.id
+    flatPage?.note_id || flatEntry?.note_id,
+    flatApi?.note_id || flatApi?.id
   )
   merged.title = preferValue(
-    pageNote?.title || entryNote?.title,
-    apiNote?.title || apiNote?.display_title
+    flatPage?.title || flatEntry?.title,
+    flatApi?.title || flatApi?.display_title
   )
-  merged.desc = preferValue(pageNote?.desc || entryNote?.desc, apiNote?.desc)
-  merged.type = preferValue(pageNote?.type || entryNote?.type, apiNote?.type)
-  merged.time = preferValue(pageNote?.time || entryNote?.time, apiNote?.time)
+  merged.desc = preferValue(flatPage?.desc || flatEntry?.desc, flatApi?.desc)
+  merged.type = preferValue(flatPage?.type || flatEntry?.type, flatApi?.type)
+  merged.time = preferValue(flatPage?.time || flatEntry?.time, flatApi?.time)
   merged.last_update_time = preferValue(
-    pageNote?.last_update_time || entryNote?.last_update_time,
-    apiNote?.last_update_time
+    flatPage?.last_update_time || flatEntry?.last_update_time,
+    flatApi?.last_update_time
   )
   merged.ip_location = preferValue(
-    pageNote?.ip_location || entryNote?.ip_location,
-    apiNote?.ip_location
+    flatPage?.ip_location || flatEntry?.ip_location,
+    flatApi?.ip_location
   )
   merged.image_list = preferValue(
-    apiNote?.image_list,
-    pageNote?.image_list || entryNote?.image_list
+    flatApi?.image_list,
+    flatPage?.image_list || flatEntry?.image_list
   )
   merged.video = pickResolvableVideo(
-    apiNote?.video as Record<string, unknown> | undefined,
-    entryNote?.video as Record<string, unknown> | undefined,
-    pageNote?.video as Record<string, unknown> | undefined,
+    flatApi?.video as Record<string, unknown> | undefined,
+    flatEntry?.video as Record<string, unknown> | undefined,
+    flatPage?.video as Record<string, unknown> | undefined,
     detailEntry?.video as Record<string, unknown> | undefined
   )
-  merged.cover = preferValue(pageNote?.cover || entryNote?.cover, apiNote?.cover)
+  merged.cover = preferValue(flatPage?.cover || flatEntry?.cover, flatApi?.cover)
   merged.tag_list = preferValue(
-    pageNote?.tag_list || entryNote?.tag_list,
-    apiNote?.tag_list
+    flatPage?.tag_list || flatEntry?.tag_list,
+    flatApi?.tag_list
   )
   merged.hash_tag = preferValue(
-    pageNote?.hash_tag || entryNote?.hash_tag,
-    apiNote?.hash_tag
+    flatPage?.hash_tag || flatEntry?.hash_tag,
+    flatApi?.hash_tag
   )
   merged.xsec_token = preferValue(
-    pageNote?.xsec_token || entryNote?.xsec_token,
-    apiNote?.xsec_token
+    flatPage?.xsec_token || flatEntry?.xsec_token,
+    flatApi?.xsec_token
   )
   merged.xsec_source = preferValue(
-    pageNote?.xsec_source || entryNote?.xsec_source,
-    apiNote?.xsec_source
+    flatPage?.xsec_source || flatEntry?.xsec_source,
+    flatApi?.xsec_source
   )
 
   const interact = mergeObjects(
     mergeObjects(
       mergeObjects(
-        pageNote?.interact_info as Record<string, unknown> | undefined,
-        entryNote?.interact_info as Record<string, unknown> | undefined
+        flatPage?.interact_info as Record<string, unknown> | undefined,
+        flatEntry?.interact_info as Record<string, unknown> | undefined
       ),
       detailEntry?.interact_info as Record<string, unknown> | undefined
     ),
-    apiNote?.interact_info as Record<string, unknown> | undefined
+    flatApi?.interact_info as Record<string, unknown> | undefined
   )
   if (interact) merged.interact_info = interact
 
   const statistics = mergeObjects(
     mergeObjects(
-      pageNote?.statistics as Record<string, unknown> | undefined,
-      entryNote?.statistics as Record<string, unknown> | undefined
+      flatPage?.statistics as Record<string, unknown> | undefined,
+      flatEntry?.statistics as Record<string, unknown> | undefined
     ),
-    apiNote?.statistics as Record<string, unknown> | undefined
+    flatApi?.statistics as Record<string, unknown> | undefined
   )
   if (statistics) merged.statistics = statistics
 
   const user = mergeObjects(
     mergeObjects(
-      pageNote?.user as Record<string, unknown> | undefined,
-      entryNote?.user as Record<string, unknown> | undefined
+      flatPage?.user as Record<string, unknown> | undefined,
+      flatEntry?.user as Record<string, unknown> | undefined
     ),
-    apiNote?.user as Record<string, unknown> | undefined
+    flatApi?.user as Record<string, unknown> | undefined
   )
   if (user) merged.user = user
 
@@ -502,9 +563,11 @@ export async function applyDomEnrichment(
   const domInteract = extractInteractFromDom()
   if (domInteract) {
     const current = (note.interact_info || {}) as Record<string, unknown>
-    const merged = { ...domInteract }
-    for (const [key, value] of Object.entries(current)) {
-      if (!isEmptyValue(value)) merged[key] = value
+    const merged = { ...current }
+    for (const [key, value] of Object.entries(domInteract)) {
+      if (isEmptyValue(merged[key]) && !isEmptyValue(value)) {
+        merged[key] = value
+      }
     }
     note.interact_info = merged
   }
