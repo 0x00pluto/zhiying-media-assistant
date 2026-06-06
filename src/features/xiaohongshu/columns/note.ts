@@ -23,6 +23,29 @@ function parseCount(value: unknown) {
   return parseFeishuNumber(value) ?? value
 }
 
+function readInteractCount(
+  interact: Record<string, unknown> | undefined,
+  keys: string[],
+  note?: Record<string, unknown>
+) {
+  for (const key of keys) {
+    const fromInteract = interact?.[key]
+    if (fromInteract !== undefined && fromInteract !== null && fromInteract !== "") {
+      return parseCount(fromInteract)
+    }
+    const fromNote = note?.[key]
+    if (fromNote !== undefined && fromNote !== null && fromNote !== "") {
+      return parseCount(fromNote)
+    }
+  }
+  return undefined
+}
+
+function getListNoteInteract(data: Record<string, unknown>) {
+  const card = data.note_card as Record<string, unknown> | undefined
+  return card?.interact_info as Record<string, unknown> | undefined
+}
+
 /** feed 列读取前 flatten 嵌套 note_card，避免列表种子结构导致缺字段 */
 function getFeedNoteData(data: Record<string, unknown>, api: string) {
   if (api !== "feed") return data
@@ -160,17 +183,17 @@ export const NOTE_COLUMNS: ColumnDef[] = [
     apis: ["feed", "user_posted", "search_notes", "board_notes", "homefeed_notes"],
     handle: ({ data, api }) => {
       if (api === "search_notes" || api === "homefeed_notes") {
-        const card = data.note_card as Record<string, unknown> | undefined
-        const interact = card?.interact_info as Record<string, unknown> | undefined
-        return interact?.liked_count
+        return readInteractCount(getListNoteInteract(data), [
+          "liked_count",
+          "like_count"
+        ])
       }
       const note = getFeedNoteData(data, api)
       const interact = note.interact_info as Record<string, unknown> | undefined
-      return parseCount(
-        interact?.liked_count ??
-          interact?.like_count ??
-          note.liked_count ??
-          note.like_count
+      return readInteractCount(
+        interact,
+        ["liked_count", "like_count"],
+        note
       )
     }
   },
@@ -183,13 +206,11 @@ export const NOTE_COLUMNS: ColumnDef[] = [
     apis: ["feed", "user_posted", "search_notes", "board_notes", "homefeed_notes"],
     handle: ({ data, api }) => {
       if (api === "search_notes" || api === "homefeed_notes") {
-        const card = data.note_card as Record<string, unknown> | undefined
-        const interact = card?.interact_info as Record<string, unknown> | undefined
-        return interact?.collected_count
+        return readInteractCount(getListNoteInteract(data), ["collected_count"])
       }
       const note = getFeedNoteData(data, api)
       const interact = note.interact_info as Record<string, unknown> | undefined
-      return parseCount(interact?.collected_count ?? note.collected_count)
+      return readInteractCount(interact, ["collected_count"], note)
     }
   },
   {
@@ -201,13 +222,11 @@ export const NOTE_COLUMNS: ColumnDef[] = [
     apis: ["feed", "user_posted", "search_notes", "board_notes", "homefeed_notes"],
     handle: ({ data, api }) => {
       if (api === "search_notes" || api === "homefeed_notes") {
-        const card = data.note_card as Record<string, unknown> | undefined
-        const interact = card?.interact_info as Record<string, unknown> | undefined
-        return interact?.comment_count
+        return readInteractCount(getListNoteInteract(data), ["comment_count"])
       }
       const note = getFeedNoteData(data, api)
       const interact = note.interact_info as Record<string, unknown> | undefined
-      return parseCount(interact?.comment_count ?? note.comment_count)
+      return readInteractCount(interact, ["comment_count"], note)
     }
   },
   {
@@ -219,20 +238,17 @@ export const NOTE_COLUMNS: ColumnDef[] = [
     apis: ["feed", "user_posted", "search_notes", "board_notes", "homefeed_notes"],
     handle: ({ data, api }) => {
       if (api === "search_notes" || api === "homefeed_notes") {
-        const card = data.note_card as Record<string, unknown> | undefined
-        const interact = card?.interact_info as Record<string, unknown> | undefined
-        return parseCount(interact?.shared_count)
+        return readInteractCount(getListNoteInteract(data), [
+          "share_count",
+          "shared_count"
+        ])
       }
       const note = getFeedNoteData(data, api)
       const interact = note.interact_info as Record<string, unknown> | undefined
       const statistics = note.statistics as Record<string, unknown> | undefined
-      return parseCount(
-        interact?.share_count ??
-          interact?.shared_count ??
-          statistics?.share_count ??
-          statistics?.shared_count ??
-          note.share_count ??
-          note.shared_count
+      return (
+        readInteractCount(interact, ["share_count", "shared_count"], note) ??
+        readInteractCount(statistics, ["share_count", "shared_count"])
       )
     }
   },

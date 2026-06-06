@@ -1,5 +1,6 @@
 /** feed 形状解析唯一入口（unwrap 见 api/unwrap-payload.ts） */
 import { unwrapXhsResponsePayload } from "~features/xiaohongshu/api/unwrap-payload"
+import { flattenNoteCard } from "~features/xiaohongshu/collectors/note-enrich"
 
 function getInteractInfo(note?: Record<string, unknown>) {
   if (!note) return undefined
@@ -92,4 +93,20 @@ export function hasInteractCounts(note?: Record<string, unknown>) {
       interact.share_count ||
       interact.shared_count
   )
+}
+
+/** feed note_card 是否含标题/正文/话题等文本字段 */
+export function hasFeedTextContent(note?: Record<string, unknown>) {
+  if (!note || Object.keys(note).length === 0) return false
+
+  const flat = flattenNoteCard(note) || note
+  if (flat.title || flat.display_title || flat.desc) return true
+
+  const tagList = flat.tag_list
+  if (Array.isArray(tagList) && tagList.length > 0) return true
+
+  const hashTag = flat.hash_tag
+  if (Array.isArray(hashTag) && hashTag.length > 0) return true
+
+  return false
 }

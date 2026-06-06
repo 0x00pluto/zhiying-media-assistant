@@ -137,3 +137,17 @@ if (shouldDegradeCommentPage(parsed)) {
 **参考文档：**
 
 - 笔记 feed 批量采集排查（不同 API，勿混淆）：[`how-to-xiaohongshu-batch-note-collect-troubleshooting.md`](how-to-xiaohongshu-batch-note-collect-troubleshooting.md)
+
+---
+
+### **Q: `chrome://extensions` 报 Extension context invalidated 或 addListener 错误怎么办？**
+
+**A:**
+开发或重载扩展后，扩展错误页可能出现两类提示，处理方式不同：
+
+| 错误 | 原因 | 处理 |
+|------|------|------|
+| `Extension context invalidated` | 扩展已重载，旧标签页里的 content script 仍连着失效上下文 | 在 `chrome://extensions` 重载扩展后，**F5 刷新小红书页面**（或关掉标签重新打开） |
+| `Cannot read properties of undefined (reading 'addListener')` | MAIN world 脚本误用 `chrome.runtime.onMessage`（该 API 在 MAIN world 不可用） | 已在 `bootstrap.ts` 移除冗余监听；若仍见此错，确认加载的是最新 `build/` 产物并重载扩展 |
+
+后台与页面通信走 **ISOLATED `content.ts` 的 onMessage** + **CustomEvent 桥** + **background `executeScript`**，不依赖 MAIN world 的 `onMessage`。重载扩展后务必刷新目标页，否则采集可能提示「页面脚本未就绪」。

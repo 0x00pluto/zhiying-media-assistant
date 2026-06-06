@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   extractFeedItemsFromPayload,
+  hasFeedTextContent,
   hasInteractCounts,
   isFeedDetailComplete,
   parseFeedNoteCard
@@ -118,6 +119,34 @@ describe("isFeedDetailComplete", () => {
     expect(
       isFeedDetailComplete({
         interact_info: { liked_count: "1" }
+      })
+    ).toBe(true)
+  })
+})
+
+describe("hasFeedTextContent", () => {
+  it("空 title/desc/tag_list 为无文本", () => {
+    expect(
+      hasFeedTextContent({
+        title: "",
+        desc: "",
+        tag_list: []
+      })
+    ).toBe(false)
+  })
+
+  it("display_title 视为有文本", () => {
+    expect(
+      hasFeedTextContent({
+        display_title: "列表标题"
+      })
+    ).toBe(true)
+  })
+
+  it("tag_list 非空视为有文本", () => {
+    expect(
+      hasFeedTextContent({
+        tag_list: [{ name: "绘画", type: "topic" }]
       })
     ).toBe(true)
   })

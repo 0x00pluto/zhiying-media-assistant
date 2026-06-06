@@ -16,6 +16,7 @@ import { NOTE_COLUMNS } from "~features/xiaohongshu/columns/note"
 import {
   collectNoteByUrl,
   parseNoteUrlOrNull,
+  shouldWarnFeedMissingText,
   shouldWarnFeedOnlySeed
 } from "~features/xiaohongshu/feed/collect-note-by-url"
 import { fetchNoteDetail } from "~features/xiaohongshu/feed/fetch-note-detail"
@@ -331,6 +332,14 @@ export class NoteCollector extends TaskRunner<NoteCollectCondition> {
           index,
           url,
           "feed 失败，当前仅列表基础字段，请检查 Network 中 v1/feed 是否 code:0"
+        )
+      }
+
+      if (shouldWarnFeedMissingText(result.merged)) {
+        this.recordLinkWarning(
+          index,
+          url,
+          "feed 未返回标题/正文/话题（常见于视频笔记）；可先在小红书页点开该笔记再采集"
         )
       }
 

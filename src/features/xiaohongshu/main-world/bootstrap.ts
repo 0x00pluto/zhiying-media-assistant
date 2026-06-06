@@ -1,8 +1,6 @@
 import type {
   ExecuteRequestDetail,
-  ExecuteResponseDetail,
-  GetWindowValuePayload,
-  HttpRequestConfig
+  ExecuteResponseDetail
 } from "~shared/messaging/types"
 import {
   QMC_EXECUTE_REQUEST_EVENT,
@@ -11,31 +9,6 @@ import {
 
 import { getDomainSuffix, installFetchHook, installXhrHook } from "./hooks"
 import { executeHttpRequest, installSmzsHttpRequest, tryHookWebpackHttpClient } from "./http"
-
-type SmzsHandlerMessage = {
-  type: string
-  data?: unknown
-}
-
-function getWindowValues(paths: GetWindowValuePayload) {
-  const result: Record<string, unknown> = {}
-
-  for (const [key, chain] of Object.entries(paths)) {
-    let current: unknown = window
-    for (const segment of chain) {
-      if (current == null) {
-        result[key] = undefined
-        break
-      }
-      current = (current as Record<string, unknown>)[segment]
-    }
-    if (current !== undefined || key in result === false) {
-      result[key] = current
-    }
-  }
-
-  return result
-}
 
 function installExecuteRequestBridge() {
   window.addEventListener(QMC_EXECUTE_REQUEST_EVENT, (event) => {
@@ -69,34 +42,6 @@ function installExecuteRequestBridge() {
   })
 }
 
-function installMessageHandlers() {
-  chrome.runtime.onMessage.addListener((message: SmzsHandlerMessage, _sender, sendResponse) => {
-    if (!message?.type) return false
-
-    if (message.type === "getWindowValue") {
-      sendResponse(getWindowValues((message.data || {}) as GetWindowValuePayload))
-      return true
-    }
-
-    if (message.type === "request") {
-      executeHttpRequest((message.data || {}) as HttpRequestConfig)
-        .then((res) => sendResponse(res))
-        .catch((error) =>
-          sendResponse({
-            status: 500,
-            statusText: "Error",
-            data: null,
-            headers: {},
-            error: error?.message || String(error)
-          })
-        )
-      return true
-    }
-
-    return false
-  })
-}
-
 function hookWebpackHttpClient() {
   tryHookWebpackHttpClient()
   window.addEventListener("load", () => tryHookWebpackHttpClient(), {
@@ -120,6 +65,5 @@ export function bootstrapMainWorld() {
 
   installSmzsHttpRequest()
   installExecuteRequestBridge()
-  installMessageHandlers()
   hookWebpackHttpClient()
 }

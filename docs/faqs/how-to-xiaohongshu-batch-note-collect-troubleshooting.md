@@ -194,7 +194,7 @@ feed 成功时业务体（解包后）应能取到：
 2. **`flattenNoteCard`** 在 spread 后用 `mergeInteractInfo` 显式合并 outer/inner 的 `interact_info`，优先保留含计数的对象（`src/features/xiaohongshu/collectors/note-enrich.ts`）。
 3. **`fetchNoteDetail`**：API 解析后若仍无互动，通过 `waitForCachedFeedNoteFromPage` 读 content feed 拦截缓存，`mergeNoteSources(cached, api)` 补全；仍无互动则 **返回 error**，不落库残缺 card（`src/features/xiaohongshu/feed/fetch-note-detail.ts`）。
 4. **feed-cache 桥接**：content 响应 `qmc:get-cached-feed-note`；`src/shared/messaging.ts` 提供 `waitForCachedFeedNoteFromPage`；缓存写入前对 `items[0].note_card` 做 `flattenNoteCard`（`src/features/xiaohongshu/collectors/feed-cache.ts`、`src/contents/content.ts`）。
-5. **诊断**：sidepanel 始终输出 `console.warn("[qmc] fetchNoteDetail", { items_length, liked_count, cache_hit, ... })`，便于与 Network Response 对照。
+5. **诊断**：sidepanel 始终输出 `console.debug("[qmc] fetchNoteDetail", { items_length, liked_count, cache_hit, ... })`，便于与 Network Response 对照；在 sidepanel DevTools 勾选 **Verbose**（或 All levels）后过滤 `[qmc] fetchNoteDetail` 查看（不会进入 `chrome://extensions` Errors 页）。
 
 **排查步骤：**
 

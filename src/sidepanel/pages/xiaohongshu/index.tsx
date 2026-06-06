@@ -15,7 +15,7 @@ export function XiaohongshuHome({ onNavigate }: Props) {
 
   return (
     <div>
-      <Card className="sidepanel-card" title="批量采集" bordered={false}>
+      <Card className="sidepanel-card" title="批量采集" variant="borderless">
         <MenuItem
           icon={<span>U</span>}
           label="采集博主数据"
@@ -48,7 +48,7 @@ export function XiaohongshuHome({ onNavigate }: Props) {
         />
       </Card>
 
-      <Card className="sidepanel-card" title="其他功能" bordered={false}>
+      <Card className="sidepanel-card" title="其他功能" variant="borderless">
         <MenuItem
           icon={<span>L</span>}
           label="链接转换"
@@ -56,7 +56,7 @@ export function XiaohongshuHome({ onNavigate }: Props) {
         />
       </Card>
 
-      <Card className="sidepanel-card" title="数据中心" bordered={false}>
+      <Card className="sidepanel-card" title="数据中心" variant="borderless">
         <MenuItem
           icon={<span>A</span>}
           label="账号管理"

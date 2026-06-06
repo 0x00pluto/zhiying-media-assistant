@@ -1,13 +1,18 @@
 import { buildNoteExploreUrl, isXhsNoteId, parseNoteUrl, resolveXhsNoteId } from "~features/xiaohongshu/api/parsers"
 import {
+  fetchCurrNote,
+  fetchNoteDetailEntry
+} from "~features/xiaohongshu/collectors/single-note"
+import {
   applyDomEnrichment,
   flattenNoteCard,
   mergeNoteSources
 } from "~features/xiaohongshu/collectors/note-enrich"
 import { buildFeedNoteRecord } from "~features/xiaohongshu/records/build-feed-record"
+import { getCachedFeedNoteFromPage } from "~shared/messaging"
 
 import { fetchNoteDetail } from "./fetch-note-detail"
-import { hasInteractCounts } from "./parse-feed-note"
+import { hasFeedTextContent, hasInteractCounts } from "./parse-feed-note"
 import {
   buildFeedRequest,
   resolveFeedNoteId,
@@ -63,6 +68,38 @@ function readCommentCount(merged: Record<string, unknown>) {
   return Number.isNaN(parsed) ? undefined : parsed
 }
 
+async function enrichFeedTextFromPage(
+  noteId: string,
+  pageNote: Record<string, unknown> | undefined,
+  feedNote: Record<string, unknown> | undefined,
+  detailEntry?: Record<string, unknown>
+) {
+  let merged = mergeNoteSources(pageNote, feedNote, detailEntry)
+  if (hasFeedTextContent(merged)) return merged
+
+  const [currNote, entry] = await Promise.all([
+    fetchCurrNote(noteId),
+    fetchNoteDetailEntry(noteId)
+  ])
+  const entryNote = entry?.note as Record<string, unknown> | undefined
+
+  if (currNote || entryNote) {
+    merged = mergeNoteSources(pageNote, feedNote, {
+      ...(detailEntry || {}),
+      ...(entry || {}),
+      note: currNote || entryNote
+    })
+    if (hasFeedTextContent(merged)) return merged
+  }
+
+  const cached = await getCachedFeedNoteFromPage(noteId)
+  if (cached) {
+    merged = mergeNoteSources(pageNote, cached, feedNote)
+  }
+
+  return merged
+}
+
 /** L3：url + seed + 场景 → 合并后的 note_card 与表格行 */
 export async function collectNoteByUrl(
   options: CollectNoteByUrlOptions
@@ -103,6 +140,15 @@ export async function collectNoteByUrl(
 
   let merged = mergeNoteSources(pageNote, feedNote, options.detailEntry)
 
+  if (!hasFeedTextContent(merged)) {
+    merged = await enrichFeedTextFromPage(
+      feedNoteId,
+      pageNote,
+      feedNote,
+      options.detailEntry
+    )
+  }
+
   if (options.scene === "single") {
     merged = await applyDomEnrichment(merged, feedNoteId)
   }
@@ -129,6 +175,10 @@ export function shouldWarnFeedOnlySeed(
   merged: Record<string, unknown>
 ) {
   return !feedNote && Boolean(merged) && !hasInteractCounts(merged)
+}
+
+export function shouldWarnFeedMissingText(merged: Record<string, unknown>) {
+  return !hasFeedTextContent(merged) && hasInteractCounts(merged)
 }
 
 export function parseNoteUrlOrNull(url: string) {

@@ -12,14 +12,37 @@ const XHS_KEY_ALIASES: ReadonlyArray<readonly [snake: string, camel: string]> = 
   ["image_scene", "imageScene"],
   ["like_count", "likeCount"],
   ["liked_count", "likedCount"],
+  ["collected_count", "collectedCount"],
+  ["comment_count", "commentCount"],
+  ["share_count", "shareCount"],
+  ["shared_count", "sharedCount"],
   ["create_time", "createTime"],
+  ["last_update_time", "lastUpdateTime"],
   ["ip_location", "ipLocation"],
   ["user_info", "userInfo"],
   ["user_id", "userId"],
   ["target_comment", "targetComment"],
   ["reply_control", "replyControl"],
-  ["nick_name", "nickName"]
+  ["nick_name", "nickName"],
+  ["image_list", "imageList"],
+  ["interact_info", "interactInfo"],
+  ["note_card", "noteCard"],
+  ["display_title", "displayTitle"],
+  ["model_type", "modelType"]
 ]
+
+function isAliasSourceEmpty(value: unknown) {
+  if (value === undefined || value === null || value === "") return true
+  if (Array.isArray(value) && value.length === 0) return true
+  if (typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0) {
+    return true
+  }
+  return false
+}
+
+function isAliasSourcePresent(value: unknown) {
+  return !isAliasSourceEmpty(value)
+}
 
 export function normalizeXhsApiKeys(raw: unknown): unknown {
   if (raw == null || typeof raw !== "object") return raw
@@ -36,7 +59,7 @@ export function normalizeXhsApiKeys(raw: unknown): unknown {
   }
 
   for (const [snake, camel] of XHS_KEY_ALIASES) {
-    if (out[snake] === undefined && camel in out) {
+    if (isAliasSourceEmpty(out[snake]) && camel in out && isAliasSourcePresent(out[camel])) {
       out[snake] = out[camel]
     }
   }

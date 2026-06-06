@@ -8,6 +8,7 @@ import { waitForCachedFeedNoteFromPage } from "~shared/messaging"
 
 import {
   extractFeedItemsFromPayload,
+  hasFeedTextContent,
   hasInteractCounts,
   isFeedDetailComplete,
   parseFeedNoteCard
@@ -47,7 +48,7 @@ function logFeedDebug(
   raw: unknown,
   noteCard: Record<string, unknown> | null,
   normalized: Record<string, unknown> | null,
-  extra?: { cache_hit?: boolean }
+  extra?: { cache_hit?: boolean; text_complete?: boolean; text_cache_hit?: boolean }
 ) {
   const rawObj =
     raw != null && typeof raw === "object"
@@ -56,7 +57,7 @@ function logFeedDebug(
   const items = extractFeedItemsFromPayload(raw)
   const interact = normalized?.interact_info as Record<string, unknown> | undefined
 
-  console.warn("[qmc] fetchNoteDetail", {
+  console.debug("[qmc] fetchNoteDetail", {
     source_note_id: params.source_note_id,
     xsec_source: params.xsec_source,
     token_prefix: params.xsec_token?.slice(0, 8),
@@ -67,15 +68,19 @@ function logFeedDebug(
     liked_count: interact?.liked_count,
     user_id: (normalized?.user as Record<string, unknown> | undefined)?.user_id,
     detail_complete: normalized ? isFeedDetailComplete(normalized) : false,
-    cache_hit: extra?.cache_hit
+    text_complete: normalized ? hasFeedTextContent(normalized) : false,
+    cache_hit: extra?.cache_hit,
+    text_cache_hit: extra?.text_cache_hit
   })
 }
 
-async function resolveWithFeedCache(
+async function resolveWithPageFeedCache(
   params: FeedRequestParams,
   apiParsed: Record<string, unknown>
 ) {
-  if (hasInteractCounts(apiParsed)) return apiParsed
+  const needsInteract = !hasInteractCounts(apiParsed)
+  const needsText = !hasFeedTextContent(apiParsed)
+  if (!needsInteract && !needsText) return apiParsed
 
   const cached = await waitForCachedFeedNoteFromPage(params.source_note_id, 2000)
   if (!cached) return apiParsed
@@ -104,17 +109,27 @@ export async function fetchNoteDetail(
 
     let normalized = normalizeParsedNoteCard(noteCard, params.source_note_id)
     const hadInteract = normalized ? hasInteractCounts(normalized) : false
+    const hadText = normalized ? hasFeedTextContent(normalized) : false
 
-    if (normalized && !hadInteract) {
+    if (normalized && (!hadInteract || !hadText)) {
+      const beforeText = hadText
       normalized = normalizeParsedNoteCard(
-        await resolveWithFeedCache(params, normalized),
+        await resolveWithPageFeedCache(params, normalized),
         params.source_note_id
       )
+      logFeedDebug(params, raw, noteCard, normalized, {
+        cache_hit: Boolean(normalized && !hadInteract && hasInteractCounts(normalized)),
+        text_complete: normalized ? hasFeedTextContent(normalized) : false,
+        text_cache_hit: Boolean(
+          normalized && !beforeText && hasFeedTextContent(normalized)
+        )
+      })
+    } else {
+      logFeedDebug(params, raw, noteCard, normalized, {
+        cache_hit: false,
+        text_complete: hadText
+      })
     }
-
-    logFeedDebug(params, raw, noteCard, normalized, {
-      cache_hit: Boolean(normalized && !hadInteract && hasInteractCounts(normalized))
-    })
 
     if (!normalized) {
       return { noteCard: null, error: "feed 响应未能解析 note_card" }

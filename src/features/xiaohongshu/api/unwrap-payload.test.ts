@@ -146,6 +146,95 @@ describe("normalizeXhsApiKeys", () => {
     const target = comment.target_comment as Record<string, unknown>
     expect(target.id).toBe("t1")
   })
+
+  it("v1/feed noteCard camelCase 补为 snake_case（含 imageList）", () => {
+    const normalized = normalizeXhsApiKeys({
+      items: [
+        {
+          id: "6a1058f5000000000803e331",
+          modelType: "note",
+          noteCard: {
+            noteId: "6a1058f5000000000803e331",
+            displayTitle: "标题",
+            interactInfo: {
+              likedCount: "1535",
+              collectedCount: "419",
+              commentCount: "36",
+              shareCount: "95"
+            },
+            imageList: [
+              {
+                urlDefault: "https://sns-img-bd.xhscdn.com/abc.jpg!nd_dft",
+                infoList: [{ url: "https://example.com/1.jpg" }]
+              }
+            ],
+            cover: { urlDefault: "https://sns-img-bd.xhscdn.com/cover.jpg" }
+          }
+        }
+      ]
+    }) as {
+      items: Array<Record<string, unknown>>
+    }
+
+    const item = normalized.items[0]
+    expect(item.model_type).toBe("note")
+
+    const noteCard = item.note_card as Record<string, unknown>
+    expect(noteCard.display_title).toBe("标题")
+    expect(noteCard.interact_info).toEqual({
+      likedCount: "1535",
+      liked_count: "1535",
+      collectedCount: "419",
+      collected_count: "419",
+      commentCount: "36",
+      comment_count: "36",
+      shareCount: "95",
+      share_count: "95"
+    })
+
+    const imageList = noteCard.image_list as Array<Record<string, unknown>>
+    expect(imageList).toHaveLength(1)
+    expect(imageList[0].url_default).toBe(
+      "https://sns-img-bd.xhscdn.com/abc.jpg!nd_dft"
+    )
+    expect(imageList[0].info_list).toEqual([
+      { url: "https://example.com/1.jpg" }
+    ])
+
+    const cover = noteCard.cover as Record<string, unknown>
+    expect(cover.url_default).toBe("https://sns-img-bd.xhscdn.com/cover.jpg")
+  })
+
+  it("image_list 为空数组时用 imageList 回填", () => {
+    const images = [{ urlDefault: "https://example.com/a.jpg" }]
+    const normalized = normalizeXhsApiKeys({
+      image_list: [],
+      imageList: images
+    }) as Record<string, unknown>
+
+    expect(normalized.image_list).toEqual([
+      {
+        urlDefault: "https://example.com/a.jpg",
+        url_default: "https://example.com/a.jpg"
+      }
+    ])
+  })
+
+  it("v1/feed noteCard 补 lastUpdateTime 与 ipLocation 空串回填", () => {
+    const normalized = normalizeXhsApiKeys({
+      noteCard: {
+        time: 1735649399000,
+        lastUpdateTime: 1735650000000,
+        ip_location: "",
+        ipLocation: "江苏"
+      }
+    }) as Record<string, unknown>
+
+    const noteCard = normalized.note_card as Record<string, unknown>
+    expect(noteCard.time).toBe(1735649399000)
+    expect(noteCard.last_update_time).toBe(1735650000000)
+    expect(noteCard.ip_location).toBe("江苏")
+  })
 })
 
 describe("normalizeFeedListPayload", () => {
