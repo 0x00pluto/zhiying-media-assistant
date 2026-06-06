@@ -1,3 +1,9 @@
+import {
+  CloudDownloadOutlined,
+  FilterOutlined,
+  SyncOutlined
+} from "@ant-design/icons"
+import type { ComponentType } from "react"
 import { useEffect, useMemo, useState } from "react"
 
 import {
@@ -12,10 +18,14 @@ import iconUrl from "url:~/assets/icon.png"
 import { getExtensionName } from "~shared/extension-title"
 
 const menuItems = [
-  { key: "feishu", label: "飞书同步" },
-  { key: "collect", label: "采集设置" },
-  { key: "fields", label: "小红书字段" }
-] as const
+  { key: "feishu", label: "飞书同步", icon: SyncOutlined },
+  { key: "collect", label: "采集设置", icon: CloudDownloadOutlined },
+  { key: "fields", label: "小红书字段", icon: FilterOutlined }
+] as const satisfies ReadonlyArray<{
+  key: "feishu" | "collect" | "fields"
+  label: string
+  icon: ComponentType<{ style?: React.CSSProperties }>
+}>
 
 type MenuKey = (typeof menuItems)[number]["key"]
 
@@ -37,7 +47,7 @@ function OptionsPage() {
   const [maxConcurrentUploads, setMaxConcurrentUploads] = useState(5)
   const [maxFileSize, setMaxFileSize] = useState(20)
   const [removeContentTags, setRemoveContentTags] = useState(false)
-  const [noteBatchEnabled, setNoteBatchEnabled] = useState(false)
+  const [noteBatchEnabled, setNoteBatchEnabled] = useState(true)
   const [saved, setSaved] = useState("")
 
   useEffect(() => {
@@ -116,29 +126,39 @@ function OptionsPage() {
         </div>
 
         <nav style={{ marginTop: 24, display: "grid", gap: 4 }}>
-          {menuItems.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => {
-                setActive(item.key)
-                setSaved("")
-                window.location.hash =
-                  item.key === "feishu" ? "sync-feishu" : item.key
-              }}
-              style={{
-                textAlign: "left",
-                padding: "10px 12px",
-                border: "none",
-                borderRadius: 8,
-                background: item.key === active ? "#eff6ff" : "transparent",
-                color: item.key === active ? "#1d4ed8" : "#334155",
-                cursor: "pointer",
-                fontSize: 14
-              }}>
-              {item.label}
-            </button>
-          ))}
+          {menuItems.map((item) => {
+            const Icon = item.icon
+            const isActive = item.key === active
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => {
+                  setActive(item.key)
+                  setSaved("")
+                  window.location.hash =
+                    item.key === "feishu" ? "sync-feishu" : item.key
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  textAlign: "left",
+                  padding: "8px 12px",
+                  border: "none",
+                  borderRadius: 8,
+                  background: isActive ? "#eff6ff" : "transparent",
+                  color: isActive ? "#1d4ed8" : "#334155",
+                  cursor: "pointer",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  lineHeight: "20px"
+                }}>
+                <Icon style={{ fontSize: 16 }} />
+                {item.label}
+              </button>
+            )
+          })}
         </nav>
       </aside>
 
@@ -223,7 +243,7 @@ function OptionsPage() {
                 <strong>开启笔记批量采集</strong>
                 <br />
                 <span style={{ color: "#64748b", fontSize: 13 }}>
-                  含：侧边栏批量笔记、本页采集、博主笔记列表。默认关闭。
+                  含：侧边栏批量笔记、本页采集、博主笔记列表。默认开启。
                 </span>
               </span>
             </label>

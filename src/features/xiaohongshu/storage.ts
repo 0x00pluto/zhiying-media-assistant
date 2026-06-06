@@ -10,7 +10,7 @@ export type XiaohongshuCollectConfig = {
 }
 
 const DEFAULT_COLLECT_CONFIG: XiaohongshuCollectConfig = {
-  noteBatchEnabled: false
+  noteBatchEnabled: true
 }
 
 export const xiaohongshuCollectConfigStorage = {
