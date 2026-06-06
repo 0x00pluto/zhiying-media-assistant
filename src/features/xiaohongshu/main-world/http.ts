@@ -19,7 +19,7 @@ declare global {
       post?: (
         url: string,
         data: unknown,
-        config: HttpRequestConfig
+        config?: Omit<HttpRequestConfig, "url">
       ) => Promise<{
         status: number
         statusText: string
@@ -161,7 +161,7 @@ export function tryHookWebpackHttpClient() {
   try {
     for (const key of Object.keys(window)) {
       if (!key.startsWith("webpackChunk")) continue
-      const chunk = (window as Record<string, unknown>)[key] as {
+      const chunk = (window as unknown as Record<string, unknown>)[key] as {
         push?: (...args: unknown[]) => unknown
       }
       if (typeof chunk?.push !== "function") continue
