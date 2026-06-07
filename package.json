@@ -8,6 +8,7 @@
     "dev": "plasmo dev",
     "build": "plasmo build",
     "package": "plasmo package",
+    "package:zip": "node scripts/package-zip.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
