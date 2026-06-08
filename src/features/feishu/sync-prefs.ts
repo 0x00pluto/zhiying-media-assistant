@@ -225,3 +225,20 @@ export async function saveFeishuTargetHistory(
 export async function saveFeishuUrlHistory(storageKey: string, url: string) {
   await saveFeishuTargetHistory(storageKey, { url })
 }
+
+export async function removeFeishuTargetHistory(
+  storageKey: string,
+  url: string
+): Promise<FeishuBitableTarget[]> {
+  const filtered = (await loadFeishuTargetHistories(storageKey)).filter(
+    (item) => item.url !== url
+  )
+  await storage.set(historyKey(storageKey), filtered)
+
+  const current = await loadFeishuQuickSync(storageKey)
+  if (current?.target?.url === url) {
+    await saveFeishuQuickSync(storageKey, { ...current, target: undefined })
+  }
+
+  return filtered
+}

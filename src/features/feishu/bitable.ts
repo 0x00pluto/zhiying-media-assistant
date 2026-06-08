@@ -188,6 +188,80 @@ export async function listAllRecordsByFields(
   return items
 }
 
+function readFeishuFieldValue(
+  fields: Record<string, unknown>,
+  fieldName: string
+) {
+  const raw = fields[fieldName]
+  if (raw === undefined || raw === null) return undefined
+
+  if (Array.isArray(raw)) {
+    const first = raw[0] as { text?: string } | string | number | undefined
+    if (typeof first === "object" && first !== null && "text" in first) {
+      return first.text
+    }
+    return first
+  }
+
+  if (typeof raw === "object" && "text" in (raw as { text?: string })) {
+    return (raw as { text?: string }).text
+  }
+
+  return raw
+}
+
+function isFeishuFieldNonempty(value: unknown) {
+  if (value === undefined || value === null) return false
+  if (typeof value === "string") return value.trim().length > 0
+  if (typeof value === "number") return true
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === "object" && value !== null && "text" in value) {
+    const text = (value as { text?: string }).text
+    return text !== undefined && text !== null && String(text).trim().length > 0
+  }
+  return true
+}
+
+function recordHasNonemptyField(
+  record: BitableRecordItem,
+  fieldName: string
+) {
+  const value = readFeishuFieldValue(record.fields, fieldName)
+  return isFeishuFieldNonempty(value)
+}
+
+/** 检测表中指定字段是否存在非空业务数据（guard 抽样用） */
+export async function hasRecordsWithFieldValue(
+  ref: BitableRef,
+  fieldName: string
+) {
+  try {
+    const filtered = await searchRecords(
+      ref,
+      {
+        field_names: [fieldName],
+        filter: {
+          conjunction: "and",
+          conditions: [{ field_name: fieldName, operator: "isNotEmpty" }]
+        }
+      },
+      { page_size: 1 }
+    )
+    if ((filtered.items || []).length > 0) return true
+  } catch {
+    // fallback to client-side sampling below
+  }
+
+  const sampled = await searchRecords(
+    ref,
+    { field_names: [fieldName] },
+    { page_size: 20 }
+  )
+  return (sampled.items || []).some((item) =>
+    recordHasNonemptyField(item, fieldName)
+  )
+}
+
 export type BitableUrlInput = {
   type: "base" | "wiki"
   token: string

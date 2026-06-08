@@ -15,6 +15,10 @@ import {
 } from "~features/feishu/sync-prefs"
 import { syncRecordsToFeishu } from "~features/feishu/sync-records"
 import {
+  assertSyncTargetKind,
+  detectBitableDataKind
+} from "~features/feishu/table-type-guard"
+import {
   collectSingleNote,
   copyNoteInfo,
   detectNoteMediaType,
@@ -169,6 +173,8 @@ export function NoteDetailToolbar({ noteId: propNoteId }: Props) {
       }
 
       const ref = await resolveBitableRef(targetUrl)
+      const tableKind = await detectBitableDataKind(ref)
+      assertSyncTargetKind(tableKind, "note")
       const result = await syncRecordsToFeishu(
         { appToken: ref.appToken, tableId: ref.tableId },
         records,

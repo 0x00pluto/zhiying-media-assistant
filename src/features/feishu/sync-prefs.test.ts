@@ -22,7 +22,8 @@ import {
   getTargetUrl,
   loadFeishuQuickSync,
   loadFeishuTargetHistories,
-  normalizePrefs
+  normalizePrefs,
+  removeFeishuTargetHistory
 } from "./sync-prefs"
 
 describe("formatBitableTargetLabel", () => {
@@ -168,5 +169,64 @@ describe("loadFeishuTargetHistories migration", () => {
     expect(histories).toEqual([
       { url: "https://example.feishu.cn/base/legacy?table=tbl1" }
     ])
+  })
+})
+
+describe("removeFeishuTargetHistory", () => {
+  beforeEach(() => {
+    store.clear()
+  })
+
+  it("removes matching url from history", async () => {
+    store.set(`feishuQuickSyncHistory:${FEISHU_TARGET_KEYS.batchNote}`, [
+      { url: "https://example.feishu.cn/base/a?table=t1", appName: "A", tableName: "表1" },
+      { url: "https://example.feishu.cn/base/b?table=t2", appName: "B", tableName: "表2" }
+    ])
+
+    const result = await removeFeishuTargetHistory(
+      FEISHU_TARGET_KEYS.batchNote,
+      "https://example.feishu.cn/base/a?table=t1"
+    )
+
+    expect(result).toEqual([
+      { url: "https://example.feishu.cn/base/b?table=t2", appName: "B", tableName: "表2" }
+    ])
+    expect(
+      store.get(`feishuQuickSyncHistory:${FEISHU_TARGET_KEYS.batchNote}`)
+    ).toEqual(result)
+  })
+
+  it("clears prefs.target when removed url matches saved target", async () => {
+    const url = "https://example.feishu.cn/base/a?table=t1"
+    store.set(`feishuQuickSyncHistory:${FEISHU_TARGET_KEYS.noteDetail}`, [
+      { url, appName: "A", tableName: "表1" }
+    ])
+    store.set(`feishuQuickSync:${FEISHU_TARGET_KEYS.noteDetail}`, {
+      target: { url, appName: "A", tableName: "表1" },
+      mode: "merge",
+      shouldUploadMedia: false,
+      fieldOptions: { keys: ["note_id"], skipEmpty: true }
+    })
+
+    await removeFeishuTargetHistory(FEISHU_TARGET_KEYS.noteDetail, url)
+
+    const prefs = await loadFeishuQuickSync(FEISHU_TARGET_KEYS.noteDetail)
+    expect(prefs?.target).toBeUndefined()
+    expect(prefs?.mode).toBe("merge")
+    expect(prefs?.shouldUploadMedia).toBe(false)
+    expect(prefs?.fieldOptions).toEqual({ keys: ["note_id"], skipEmpty: true })
+  })
+
+  it("is idempotent when url is not in history", async () => {
+    store.set(`feishuQuickSyncHistory:${FEISHU_TARGET_KEYS.batchComment}`, [
+      { url: "https://example.feishu.cn/base/a?table=t1" }
+    ])
+
+    const result = await removeFeishuTargetHistory(
+      FEISHU_TARGET_KEYS.batchComment,
+      "https://example.feishu.cn/base/missing?table=t9"
+    )
+
+    expect(result).toEqual([{ url: "https://example.feishu.cn/base/a?table=t1" }])
   })
 })

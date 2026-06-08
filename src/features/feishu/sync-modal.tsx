@@ -10,6 +10,7 @@ import {
   Switch,
   message
 } from "antd"
+import { CloseOutlined } from "@ant-design/icons"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import type { ColumnDef } from "~shared/columns/types"
@@ -31,11 +32,17 @@ import {
   loadFeishuQuickSync,
   loadFeishuTargetHistories,
   mergeFieldOptions,
+  removeFeishuTargetHistory,
   saveFeishuQuickSync,
   saveFeishuTargetHistory,
   saveFeishuUrl
 } from "./sync-prefs"
 import { syncRecordsToFeishu, type FieldOptions } from "./sync-records"
+import {
+  assertSyncTargetKind,
+  detectBitableDataKind,
+  syncKindFromStorageKey
+} from "./table-type-guard"
 
 export type FeishuSyncModalProps = {
   open: boolean
@@ -118,7 +125,7 @@ function buildUrlOptions(histories: FeishuBitableTarget[]) {
       (labelCounts.get(baseLabel) ?? 0) > 1
         ? `${baseLabel}（${truncateUrlHint(item.url)}）`
         : baseLabel
-    return { value: item.url, label }
+    return { value: item.url, label, target: item }
   })
 }
 
@@ -294,6 +301,25 @@ export function FeishuSyncModal({
     await resolveTargetDisplay(url, cached)
   }
 
+  const handleHistoryRemove = async (url: string) => {
+    const nextHistories = await removeFeishuTargetHistory(storageKey, url)
+    setHistories(nextHistories)
+
+    if (nextHistories.length === 0) {
+      setUrlDropdownOpen(false)
+    }
+
+    const currentUrl = form.getFieldValue("url")?.trim() || ""
+    if (currentUrl === url) {
+      form.setFieldValue("url", "")
+      setDisplayStatus("empty")
+      setDisplayLabel("")
+      setAmbiguousTables([])
+      setSelectedTableId("")
+      lastResolvedUrl.current = ""
+    }
+  }
+
   const handleSync = async (values: FormValues) => {
     if (recordsLoading) {
       message.warning("正在读取笔记，请稍候")
@@ -311,6 +337,11 @@ export function FeishuSyncModal({
     setLoading(true)
     try {
       const ref = await resolveBitableRef(url)
+      const expectedKind = syncKindFromStorageKey(storageKey)
+      if (expectedKind) {
+        const tableKind = await detectBitableDataKind(ref)
+        assertSyncTargetKind(tableKind, expectedKind)
+      }
       const result = await syncRecordsToFeishu(
         { appToken: ref.appToken, tableId: ref.tableId },
         records,
@@ -465,6 +496,38 @@ export function FeishuSyncModal({
                 open={histories.length > 0 ? urlDropdownOpen : false}
                 placeholder="https://xxx.feishu.cn/wiki/...?table=tbl..."
                 filterOption={false}
+                optionRender={(option) => (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8
+                    }}>
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {option.label}
+                    </span>
+                    <CloseOutlined
+                      aria-label="删除历史链接"
+                      style={{ flexShrink: 0, color: "#999", fontSize: 12 }}
+                      onMouseEnter={(event) => {
+                        event.currentTarget.style.color = "#ff4d4f"
+                      }}
+                      onMouseLeave={(event) => {
+                        event.currentTarget.style.color = "#999"
+                      }}
+                      onMouseDown={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                      }}
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        void handleHistoryRemove(String(option.value))
+                      }}
+                    />
+                  </div>
+                )}
                 onOpenChange={setUrlDropdownOpen}
                 onFocus={() => {
                   if (histories.length) setUrlDropdownOpen(true)

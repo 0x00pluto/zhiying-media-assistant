@@ -2,6 +2,7 @@ import { ConfigProvider } from "antd"
 import zhCN from "antd/locale/zh_CN"
 import { useEffect } from "react"
 
+import { ensureFeishuMessageLayer } from "~features/feishu/modal-utils"
 import { applyExtensionTitle } from "~shared/extension-title"
 import { SidepanelHeader, SidepanelRouter } from "~sidepanel/router"
 
@@ -11,6 +12,7 @@ import "~sidepanel/styles/sidepanel.css"
 function SidePanel() {
   useEffect(() => {
     applyExtensionTitle()
+    ensureFeishuMessageLayer()
   }, [])
 
   return (
