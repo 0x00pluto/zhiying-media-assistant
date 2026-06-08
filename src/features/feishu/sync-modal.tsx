@@ -5,6 +5,7 @@ import {
   Input,
   Modal,
   Radio,
+  Select,
   Spin,
   Switch,
   message
@@ -14,7 +15,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { ColumnDef } from "~shared/columns/types"
 import { openExtensionOptions } from "~shared/messaging"
 
-import { resolveBitableRef, resolveBitableTargetDisplay } from "./bitable"
+import {
+  appendTableToBitableUrl,
+  BitableTableAmbiguousError,
+  type BitableTableItem,
+  resolveBitableRef,
+  resolveBitableTargetDisplay
+} from "./bitable"
 import { FeishuFieldPicker } from "./feishu-field-picker"
 import { getFeishuModalProps } from "./modal-utils"
 import {
@@ -49,7 +56,17 @@ type FormValues = {
   remark?: string
 }
 
-type TargetDisplayStatus = "empty" | "resolving" | "ready" | "error"
+type TargetDisplayStatus =
+  | "empty"
+  | "resolving"
+  | "ready"
+  | "ambiguous"
+  | "error"
+
+function formatTableOptionLabel(table: BitableTableItem) {
+  const name = table.name?.trim() || "未命名数据表"
+  return `${name}（${table.table_id}）`
+}
 
 export function shouldSkipFeishuDialog(skipDialogKey?: string) {
   if (!skipDialogKey) return false
@@ -122,6 +139,10 @@ export function FeishuSyncModal({
   const [displayStatus, setDisplayStatus] =
     useState<TargetDisplayStatus>("empty")
   const [displayLabel, setDisplayLabel] = useState("")
+  const [ambiguousTables, setAmbiguousTables] = useState<BitableTableItem[]>(
+    []
+  )
+  const [selectedTableId, setSelectedTableId] = useState("")
   const [urlDropdownOpen, setUrlDropdownOpen] = useState(false)
   const resolveRequestId = useRef(0)
   const lastResolvedUrl = useRef("")
@@ -132,6 +153,8 @@ export function FeishuSyncModal({
       if (!trimmed) {
         setDisplayStatus("empty")
         setDisplayLabel("")
+        setAmbiguousTables([])
+        setSelectedTableId("")
         lastResolvedUrl.current = ""
         return
       }
@@ -142,9 +165,13 @@ export function FeishuSyncModal({
       if (hasCachedLabel && cachedTarget) {
         setDisplayStatus("ready")
         setDisplayLabel(formatBitableTargetLabel(cachedTarget))
+        setAmbiguousTables([])
+        setSelectedTableId("")
       } else {
         setDisplayStatus("resolving")
         setDisplayLabel("正在识别表格…")
+        setAmbiguousTables([])
+        setSelectedTableId("")
       }
 
       const requestId = ++resolveRequestId.current
@@ -155,11 +182,24 @@ export function FeishuSyncModal({
         lastResolvedUrl.current = trimmed
         setDisplayStatus("ready")
         setDisplayLabel(`${resolved.appName} · ${resolved.tableName}`)
+        setAmbiguousTables([])
+        setSelectedTableId("")
       } catch (error) {
         if (requestId !== resolveRequestId.current) return
         lastResolvedUrl.current = trimmed
+
+        if (error instanceof BitableTableAmbiguousError) {
+          setDisplayStatus("ambiguous")
+          setDisplayLabel(error.message)
+          setAmbiguousTables(error.tables)
+          setSelectedTableId("")
+          return
+        }
+
         setDisplayStatus("error")
         setDisplayLabel((error as Error).message)
+        setAmbiguousTables([])
+        setSelectedTableId("")
       }
     },
     []
@@ -170,6 +210,8 @@ export function FeishuSyncModal({
       setPrefsReady(false)
       setDisplayStatus("empty")
       setDisplayLabel("")
+      setAmbiguousTables([])
+      setSelectedTableId("")
       setUrlDropdownOpen(false)
       lastResolvedUrl.current = ""
       resolveRequestId.current += 1
@@ -222,13 +264,28 @@ export function FeishuSyncModal({
     if (!url) {
       setDisplayStatus("empty")
       setDisplayLabel("")
+      setAmbiguousTables([])
+      setSelectedTableId("")
       lastResolvedUrl.current = ""
       return
     }
-    if (url === lastResolvedUrl.current && displayStatus === "ready") {
+    if (
+      url === lastResolvedUrl.current &&
+      (displayStatus === "ready" || displayStatus === "ambiguous")
+    ) {
       return
     }
     await resolveTargetDisplay(url)
+  }
+
+  const handleTableSelect = async (tableId: string) => {
+    const url = form.getFieldValue("url")?.trim() || ""
+    if (!url || !tableId) return
+
+    const nextUrl = appendTableToBitableUrl(url, tableId)
+    form.setFieldValue("url", nextUrl)
+    setSelectedTableId(tableId)
+    await resolveTargetDisplay(nextUrl)
   }
 
   const handleHistorySelect = async (url: string) => {
@@ -305,6 +362,10 @@ export function FeishuSyncModal({
   }
 
   const submit = async () => {
+    if (displayStatus === "ambiguous") {
+      message.warning("请先选择要同步的数据表")
+      return
+    }
     const values = await form.validateFields()
     const ok = await handleSync(values)
     if (ok) onClose()
@@ -355,7 +416,10 @@ export function FeishuSyncModal({
       okText="确定"
       cancelText="取消"
       confirmLoading={loading}
-      okButtonProps={{ disabled: recordsLoading || !records.length }}
+      okButtonProps={{
+        disabled:
+          recordsLoading || !records.length || displayStatus === "ambiguous"
+      }}
       {...getFeishuModalProps()}
       footer={(_, { OkBtn, CancelBtn }) => (
         <>
@@ -399,7 +463,7 @@ export function FeishuSyncModal({
                 style={{ width: "100%" }}
                 options={urlOptions}
                 open={histories.length > 0 ? urlDropdownOpen : false}
-                placeholder="https://xxx.feishu.cn/base/... 或 /wiki/...?table=..."
+                placeholder="https://xxx.feishu.cn/wiki/...?table=tbl..."
                 filterOption={false}
                 onOpenChange={setUrlDropdownOpen}
                 onFocus={() => {
@@ -423,14 +487,35 @@ export function FeishuSyncModal({
                 color:
                   displayStatus === "error"
                     ? "#ff4d4f"
-                    : displayStatus === "resolving"
-                      ? "#999"
-                      : "#666",
+                    : displayStatus === "ambiguous"
+                      ? "#d48806"
+                      : displayStatus === "resolving"
+                        ? "#999"
+                        : "#666",
                 marginBottom: 8
               }}>
-              {displayStatus === "error"
-                ? "无法识别该链接，请检查格式或飞书配置"
-                : displayLabel}
+              {displayLabel}
+            </div>
+          ) : null}
+          {displayStatus === "error" ? (
+            <div style={{ ...subtitleStyle, color: "#999", marginBottom: 8 }}>
+              分享链接可能不含 table 参数。请从浏览器地址栏复制完整链接，或在下方选择数据表。
+            </div>
+          ) : null}
+          {displayStatus === "ambiguous" && ambiguousTables.length > 0 ? (
+            <div style={{ margin: "0 0 8px 25%" }}>
+              <Select
+                style={{ width: "100%" }}
+                placeholder="请选择要同步的数据表"
+                value={selectedTableId || undefined}
+                options={ambiguousTables.map((table) => ({
+                  value: table.table_id,
+                  label: formatTableOptionLabel(table)
+                }))}
+                onChange={(value) => {
+                  void handleTableSelect(String(value))
+                }}
+              />
             </div>
           ) : null}
           <div
@@ -442,7 +527,8 @@ export function FeishuSyncModal({
               background: "#e6f4ff",
               borderRadius: 6
             }}>
-            支持飞书多维表格直链（/base/）或知识库 Wiki 链接（/wiki/），需带 table 参数
+            支持飞书多维表格直链（/base/）或知识库 Wiki 链接（/wiki/）。分享链接可能不含
+            table 参数，多表时请从地址栏复制完整链接或在下方选择数据表。
           </div>
 
           <Form.Item

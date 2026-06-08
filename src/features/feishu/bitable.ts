@@ -203,6 +203,37 @@ export type ResolvedBitableTarget = ResolvedBitableRef & {
   tableName: string
 }
 
+export type BitableTableItem = {
+  table_id: string
+  name?: string
+}
+
+export type ResolveTableResult =
+  | { status: "resolved"; tableId: string }
+  | { status: "ambiguous"; tables: BitableTableItem[] }
+
+/** 分享链接未指定 table 且多维表格含多张数据表时抛出，供 UI 展示选择器 */
+export class BitableTableAmbiguousError extends Error {
+  readonly appToken: string
+  readonly appName: string
+  readonly tables: BitableTableItem[]
+  readonly url: string
+
+  constructor(
+    appToken: string,
+    appName: string,
+    tables: BitableTableItem[],
+    url: string
+  ) {
+    super("分享链接未指定数据表，请在下方选择要同步的数据表")
+    this.name = "BitableTableAmbiguousError"
+    this.appToken = appToken
+    this.appName = appName
+    this.tables = tables
+    this.url = url
+  }
+}
+
 export function parseBitableUrlInput(url: string): BitableUrlInput | null {
   try {
     const parsed = new URL(url.trim())
@@ -263,17 +294,18 @@ export async function getBitableApp(appToken: string) {
   return data.app?.name?.trim() || "未命名多维表格"
 }
 
-async function listBitableTables(appToken: string) {
+export async function listBitableTables(appToken: string) {
   const data = await feishuRequest<{
-    items?: Array<{ table_id: string; name?: string }>
+    items?: BitableTableItem[]
   }>(`/open-apis/bitable/v1/apps/${appToken}/tables`)
   return data.items || []
 }
 
-function resolveTableId(
-  tables: Array<{ table_id: string; name?: string }>,
+/** 根据 URL 查询参数从已知数据表列表中解析 tableId（纯函数，可单测） */
+export function resolveTableIdFromParams(
+  tables: BitableTableItem[],
   url: URL
-) {
+): ResolveTableResult {
   const tableId =
     url.searchParams.get("table") || url.searchParams.get("tableId")
 
@@ -282,17 +314,62 @@ function resolveTableId(
     if (!matched) {
       throw new Error("链接中的数据表不存在，请检查 table 参数是否正确")
     }
-    return tableId
+    return { status: "resolved", tableId }
   }
 
   if (tables.length === 1) {
     url.searchParams.set("table", tables[0].table_id)
-    return tables[0].table_id
+    return { status: "resolved", tableId: tables[0].table_id }
   }
 
-  throw new Error(
-    "链接未指定 table 参数，且多维表格包含多个数据表，请在 URL 中带上 table= 参数"
-  )
+  return { status: "ambiguous", tables }
+}
+
+async function resolveTableIdByView(
+  appToken: string,
+  tables: BitableTableItem[],
+  viewId: string
+) {
+  for (const table of tables) {
+    const data = await feishuRequest<{
+      items?: Array<{ view_id?: string }>
+    }>(
+      `/open-apis/bitable/v1/apps/${appToken}/tables/${table.table_id}/views`
+    )
+    if (data.items?.some((view) => view.view_id === viewId)) {
+      return table.table_id
+    }
+  }
+  return null
+}
+
+async function resolveTableId(
+  appToken: string,
+  tables: BitableTableItem[],
+  url: URL
+) {
+  let result = resolveTableIdFromParams(tables, url)
+  if (result.status === "resolved") {
+    return result.tableId
+  }
+
+  const viewId = url.searchParams.get("view")
+  if (viewId) {
+    const tableId = await resolveTableIdByView(appToken, tables, viewId)
+    if (tableId) {
+      url.searchParams.set("table", tableId)
+      return tableId
+    }
+  }
+
+  return null
+}
+
+export function appendTableToBitableUrl(url: string, tableId: string) {
+  const input = parseBitableUrlInput(url)
+  if (!input) return url
+  input.url.searchParams.set("table", tableId)
+  return input.url.href
 }
 
 /** 解析链接并返回文档名、数据表名，供同步弹窗二次确认 */
@@ -320,14 +397,23 @@ export async function resolveBitableTargetDisplay(
     throw new Error("当前多维表格中未检测到数据表，请先创建数据表")
   }
 
-  const tableId = resolveTableId(tables, input.url)
-  const matchedTable = tables.find((table) => table.table_id === tableId)
-  const tableName = matchedTable?.name?.trim() || "未命名数据表"
-
   let appName = wikiTitle
   if (!appName) {
     appName = await getBitableApp(appToken)
   }
+
+  const tableId = await resolveTableId(appToken, tables, input.url)
+  if (!tableId) {
+    throw new BitableTableAmbiguousError(
+      appToken,
+      appName,
+      tables,
+      input.url.href
+    )
+  }
+
+  const matchedTable = tables.find((table) => table.table_id === tableId)
+  const tableName = matchedTable?.name?.trim() || "未命名数据表"
 
   return {
     appToken,
