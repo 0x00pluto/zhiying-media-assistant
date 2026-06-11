@@ -32,6 +32,8 @@ export type CommentCollectCondition = {
   fieldOptions?: FieldOptions
 }
 
+export type CommentCollectPhase = "idle" | "root" | "sub"
+
 type AddRecordInput = {
   data: Record<string, unknown>
   api: XhsApiType
@@ -84,6 +86,12 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
   partialStopReason = ""
   /** 笔记级熔断：空响应/限流后不再发 comment/sub 请求 */
   private degradedNotes = new Set<string>()
+  /** UI：当前采集阶段 */
+  collectPhase: CommentCollectPhase = "idle"
+  /** UI：阶段 2 当前展开的第几条一级评论（0-based） */
+  subExpandRootIndex = 0
+  /** UI：阶段 2 待展开的一级评论总数 */
+  subExpandRootTotal = 0
 
   private isApiDegraded(noteId: string) {
     return this.degradedNotes.has(noteId)
@@ -179,6 +187,17 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
     return this.records.filter((record) => record.note_id === noteId).length
   }
 
+  getCollectPhase(): CommentCollectPhase {
+    return this.collectPhase
+  }
+
+  getSubExpandProgress() {
+    return {
+      index: this.subExpandRootIndex,
+      total: this.subExpandRootTotal
+    }
+  }
+
   private isUnderCollectLimit(noteId: string, limit: number) {
     return isUnderCollectLimit({
       records: this.records,
@@ -192,6 +211,9 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
     this.commentIds.clear()
     this.partialStopReason = ""
     this.degradedNotes.clear()
+    this.collectPhase = "root"
+    this.subExpandRootIndex = 0
+    this.subExpandRootTotal = 0
     this.interval = this.condition.includeSub
       ? { ...COMMENT_COLLECT_INTERVAL.withSub }
       : { ...COMMENT_COLLECT_INTERVAL.default }
@@ -199,6 +221,7 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
     for (const url of this.condition.urls || []) {
       await this.collectNoteComments(url, this.condition.limitPerId || 100)
     }
+    this.collectPhase = "idle"
     this.backfillCommentRelations()
   }
 
@@ -437,6 +460,10 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
     const pendingSubRoots: Array<Record<string, unknown>> = []
     const { subRootExtra } = COMMENT_COLLECT_INTERVAL
 
+    this.collectPhase = "root"
+    this.subExpandRootIndex = 0
+    this.subExpandRootTotal = 0
+
     // 阶段 1：滚动式一级 comment/page（对齐浏览器，不在此阶段打 sub/page）
     while (
       !this.isApiDegraded(note.id) &&
@@ -498,12 +525,24 @@ export class CommentCollector extends TaskRunner<CommentCollectCondition> {
 
     // 阶段 2：逐 root 展开子评论（对齐浏览器点击「查看更多回复」）
     if (this.condition.includeSub && !this.isApiDegraded(note.id)) {
-      for (const rootComment of pendingSubRoots) {
+      this.subExpandRootTotal = pendingSubRoots.length
+      if (pendingSubRoots.length > 0) {
+        this.collectPhase = "sub"
+      }
+
+      for (let i = 0; i < pendingSubRoots.length; i++) {
         if (this.isApiDegraded(note.id)) break
+
+        this.subExpandRootIndex = i
 
         // 略慢于翻页，模拟点开回复；requestWithRetry 内还有一次请求前等待
         await this.waitInterval(subRootExtra.min, subRootExtra.max)
-        await this.collectSubComments(pageUrl, note.id, rootComment, xsecToken)
+        await this.collectSubComments(
+          pageUrl,
+          note.id,
+          pendingSubRoots[i],
+          xsecToken
+        )
       }
     }
   }

@@ -5,7 +5,13 @@ import { FeishuFieldPicker } from "~features/feishu/feishu-field-picker"
 import { FEISHU_TARGET_KEYS } from "~features/feishu/sync-prefs"
 import type { FieldOptions } from "~features/feishu/sync-records"
 import { COMMENT_COLUMNS } from "~features/xiaohongshu/columns/comment"
+import { parseNoteUrl } from "~features/xiaohongshu/api/parsers"
+import type { CommentCollectPhase } from "~features/xiaohongshu/collectors/comment"
 import { CommentCollector } from "~features/xiaohongshu/tasks/comment"
+import {
+  CommentCollectStatus,
+  resolveCommentCollectButtonLabel
+} from "~sidepanel/components/comment-collect-status"
 import { FeishuSyncPanel } from "~sidepanel/components/feishu-sync-panel"
 import { BatchRecordsTable } from "~sidepanel/components/batch-records-table"
 import { getCurrentTask, runTask } from "~sidepanel/store/task"
@@ -57,8 +63,18 @@ export function BatchCommentPage({ initialState }: Props) {
   const [records, setRecords] = useState<Record<string, unknown>[]>([])
   const [error, setError] = useState("")
   const [partialWarning, setPartialWarning] = useState("")
+  const [collectPhase, setCollectPhase] = useState<CommentCollectPhase>("idle")
+  const [subExpand, setSubExpand] = useState({ index: 0, total: 0 })
 
   const urls = useMemo(() => parseLinkLines(links), [links])
+  const noteId = useMemo(() => {
+    if (urls.length !== 1) return undefined
+    try {
+      return parseNoteUrl(urls[0]).id
+    } catch {
+      return undefined
+    }
+  }, [urls])
   const linkCount = urls.length
   const maxCommentCount =
     urls.length === 1 ? Number(initialState?.limitPerId) || 0 : 0
@@ -127,6 +143,8 @@ export function BatchCommentPage({ initialState }: Props) {
     setError("")
     setPartialWarning("")
     setRecords([])
+    setCollectPhase("root")
+    setSubExpand({ index: 0, total: 0 })
     setRunning(true)
 
     const effectiveLimit = Math.min(
@@ -156,6 +174,10 @@ export function BatchCommentPage({ initialState }: Props) {
           })
           setStatus(current.status)
           setRecords([...current.records])
+          if (current instanceof CommentCollector) {
+            setCollectPhase(current.getCollectPhase())
+            setSubExpand(current.getSubExpandProgress())
+          }
         }
       }, 500)
 
@@ -167,6 +189,10 @@ export function BatchCommentPage({ initialState }: Props) {
         total: task.getTotal()
       })
       setRecords([...task.records])
+      if (task instanceof CommentCollector) {
+        setCollectPhase(task.getCollectPhase())
+        setSubExpand(task.getSubExpandProgress())
+      }
       if (task instanceof CommentCollector && task.partialStopReason) {
         setPartialWarning(
           `已采集 ${task.records.length} 条，未达目标数量：${task.partialStopReason}`
@@ -182,6 +208,12 @@ export function BatchCommentPage({ initialState }: Props) {
   const exportFilename = taskName.trim() || "小红书评论"
   const isCompleted =
     status === TaskStatus.COMPLETED && records.length > 0 && !running
+  const collectButtonLabel = resolveCommentCollectButtonLabel({
+    running,
+    includeSub,
+    progress,
+    collectPhase
+  })
 
   return (
     <div>
@@ -283,7 +315,7 @@ export function BatchCommentPage({ initialState }: Props) {
           onClick={startTask}
           loading={running}
           disabled={!canStart}>
-          {running ? "采集中..." : "开始采集"}
+          {collectButtonLabel}
         </Button>
       </div>
 
@@ -297,9 +329,16 @@ export function BatchCommentPage({ initialState }: Props) {
         </Typography.Paragraph>
       ) : null}
 
-      <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
-        状态: {status} · 进度 {progress.completed}/{progress.total}
-      </Typography.Paragraph>
+      <CommentCollectStatus
+        running={running}
+        status={status}
+        includeSub={includeSub}
+        progress={progress}
+        records={records}
+        collectPhase={collectPhase}
+        subExpand={subExpand}
+        noteId={noteId}
+      />
 
       {isCompleted && (
         <FeishuSyncPanel

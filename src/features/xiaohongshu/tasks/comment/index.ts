@@ -1,4 +1,5 @@
 export {
   CommentCollector,
-  type CommentCollectCondition
+  type CommentCollectCondition,
+  type CommentCollectPhase
 } from "~features/xiaohongshu/collectors/comment"
