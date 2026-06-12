@@ -60,6 +60,8 @@ pnpm package:zip
 # 产物：dist/智赢媒体助手-v0.3.1.zip
 ```
 
+**Microsoft Edge 商店**请上传 `dist/` 下的 zip（脚本会自动清理 manifest 中 Plasmo 生成的 ghost CSS 引用）。勿直接上传 `build/` 下的 `chrome-mv3-prod.zip`。详见 [Edge 商店打包 FAQ](docs/faqs/how-to-edge-store-package-validation.md)。
+
 ## 首次配置
 
 1. 右键扩展图标 → **选项**，或打开扩展选项页

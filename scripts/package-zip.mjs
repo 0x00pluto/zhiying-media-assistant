@@ -13,6 +13,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { sanitizeManifest } from "./sanitize-manifest.mjs"
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = join(__dirname, "..")
 const buildDir = join(root, "build/chrome-mv3-prod")
@@ -61,6 +63,20 @@ if (!existsSync(manifestPath)) {
   process.exit(1)
 }
 
+console.log(">>> sanitize manifest.json")
+try {
+  const { removed } = sanitizeManifest(buildDir)
+  if (removed.length > 0) {
+    console.log(`已清理 ${removed.length} 条 ghost 引用：`)
+    for (const item of removed) console.log(`  - ${item}`)
+  } else {
+    console.log("manifest.json 无需清理。")
+  }
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error)
+  process.exit(1)
+}
+
 mkdirSync(distDir, { recursive: true })
 if (existsSync(zipPath)) {
   rmSync(zipPath)
@@ -87,3 +103,4 @@ console.log(`  版本：v${version}`)
 console.log(`  产物：${zipPath}`)
 console.log("")
 console.log("离线安装：解压 zip 后，在 chrome://extensions 加载已解压的扩展程序。")
+console.log("Edge 商店：请上传上述 dist zip，勿直接上传 build/ 下的 chrome-mv3-prod.zip。")
