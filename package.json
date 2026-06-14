@@ -1,7 +1,7 @@
 {
   "name": "quanmediacrawl",
   "displayName": "__MSG_extName__",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "__MSG_extDescription__",
   "author": "",
   "scripts": {
@@ -41,7 +41,6 @@
       "downloads",
       "storage",
       "scripting",
-      "alarms",
       "sidePanel"
     ],
     "host_permissions": [
