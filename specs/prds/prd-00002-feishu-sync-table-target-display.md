@@ -14,7 +14,7 @@ created: 2026-06-06T13:31:26Z
 |---|---|
 | 状态 | backlog |
 | 范围 | 飞书同步弹窗、各入口 prefs 缓存、bitable 目标解析 |
-| 关联文档 | AGENTS.md、docs/doc_index.md、prds/prd-00001-sidepanel-home-slim.md |
+| 关联文档 | AGENTS.md、docs/doc_index.md、specs/prds/prd-00001-sidepanel-home-slim.md |
 | 序号 | 00002 |
 | 功能 slug | feishu-sync-table-target-display |
 

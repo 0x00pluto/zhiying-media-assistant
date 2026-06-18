@@ -14,10 +14,10 @@ created: 2026-06-08T02:52:30Z
 |---|---|
 | 状态 | backlog |
 | 范围 | 飞书同步弹窗历史下拉、sync-prefs 持久化、同步前笔记/评论表类型 guard |
-| 关联文档 | AGENTS.md、docs/doc_index.md、docs/faqs/how-to-feishu-sync-table-target-display.md、prds/prd-00002-feishu-sync-table-target-display.md |
+| 关联文档 | AGENTS.md、docs/doc_index.md、docs/faqs/how-to-feishu-sync-table-target-display.md、specs/prds/prd-00002-feishu-sync-table-target-display.md |
 | 序号 | 00003 |
 | 功能 slug | feishu-sync-history-type-guard |
-| 父 PRD | prds/prd-00002-feishu-sync-table-target-display.md（副标题与分入口缓存，本 PRD 在其上扩展） |
+| 父 PRD | specs/prds/prd-00002-feishu-sync-table-target-display.md（副标题与分入口缓存，本 PRD 在其上扩展） |
 
 ---
 
